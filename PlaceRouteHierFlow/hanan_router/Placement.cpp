@@ -207,14 +207,15 @@ void Module::route(HRouter::Router& router, const std::string& outdir)
         //std::cout << "DEBUG found net : " << itn->second.name() << ' ' << itn->second.routeShapesWithPins().size() << '\n';
         if (!itn->second.excluded()) p.second->copyRects(itn->second.routeShapesWithPins());
         else {
-          //COUT << "excluded : " << itn->second.name() << "\n";
+          // an excluded net's pin takes its instances' port shapes as ports of its own; the
+          // module's own pin is on the net too (global nets) and is what grows here, so its
+          // ports are neither read nor appended to while they are iterated
+          std::vector<Geom::LayerRects> shapes;
           for (auto& pin : itn->second.pins()) {
-            //COUT << "pin : " << pin->name() << '\n';
-            for (auto& port : pin->ports()) {
-              //COUT << "port : " << port->name() << '\n';
-              p.second->copyRects(port->shapes(), true);
-            }
+            if (pin == p.second) continue;
+            for (auto& port : pin->ports()) shapes.push_back(port->shapes());
           }
+          for (auto& lr : shapes) p.second->copyRects(lr, true);
         }
       }
     }
