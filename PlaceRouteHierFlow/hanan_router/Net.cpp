@@ -1,5 +1,6 @@
 #include "Util.h"
 #include "Placement.h"
+#include <limits>
 
 #include <algorithm>
 
@@ -35,7 +36,13 @@ PortPairs Net::reorderPorts() const
     }
   }
   PortPairs porder;
-  if (ports.empty()) return porder;
+  // two ports at least to route between: a net whose pins have fewer (a leaf's supply pin
+  // without a shape, say) has nothing to connect here, and the pair search below needs two
+  if (ports.size() < 2) {
+    COUT << "net : " << _name << " has " << ports.size() << " port(s) on " << _pins.size() + _vpins.size()
+         << " pin(s); nothing to route\n";
+    return porder;
+  }
   std::sort(ports.begin(), ports.end(),
       [](const Port* p1, const Port* p2) -> bool
       {
@@ -49,13 +56,16 @@ PortPairs Net::reorderPorts() const
       }
       );
   std::vector< std::vector<double> > portpairdist(ports.size(), std::vector<double>(ports.size(), 0));
-  double mindist{1e30};
-  int idx1{-1}, idx2{-1};
+  // ports without shapes keep the 1e30 distance: the searches start above it, so every pair
+  // is a candidate and the first pair stands when all are equal
+  double mindist{std::numeric_limits<double>::infinity()};
+  int idx1{0}, idx2{1};
   Geom::Rect netbbox;
   for (auto& p : ports) {
     netbbox.merge(p->bbox());
   }
-  double nethpwl{(netbbox.width() + netbbox.height()) * 1.};
+  // ports all at one point: a unit half-perimeter keeps the distances finite (0/0 is NaN)
+  double nethpwl{std::max((netbbox.width() + netbbox.height()) * 1., 1.)};
   for (unsigned i = 0; i < ports.size(); ++i) {
     auto& p1 = ports[i];
     auto& s1 = p1->shapes();
@@ -109,7 +119,7 @@ PortPairs Net::reorderPorts() const
   selected[idx1] = 1;
   selected[idx2] = 1;
   while (primorder.size() < ports.size() - 1) {
-    double mindist{1e30};
+    double mindist{std::numeric_limits<double>::infinity()};
     int minidx2 = -1, minidx1 = -1;
     for (int i = 0; i < static_cast<int>(ports.size()); ++i) {
       if (!selected[i]) continue;
@@ -121,11 +131,10 @@ PortPairs Net::reorderPorts() const
         }
       }
     }
-    if (minidx2 >= 0) {
-      primorder.push_back(std::make_pair(minidx1, minidx2));
-      COUT << "ports to route order : " << ports[minidx1]->name() << ' ' << ports[minidx2]->name() << '\n';
-      selected[minidx2] = 1;
-    }
+    if (minidx2 < 0) break;  // no unselected port left within reach: never spin
+    primorder.push_back(std::make_pair(minidx1, minidx2));
+    COUT << "ports to route order : " << ports[minidx1]->name() << ' ' << ports[minidx2]->name() << '\n';
+    selected[minidx2] = 1;
   }
 
   std::sort(primorder.begin(), primorder.end(), [portpairdist](const std::pair<int, int>& a, const std::pair<int, int>& b) -> bool
