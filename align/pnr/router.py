@@ -16,6 +16,7 @@ from .build_pnr_model import gen_DB_verilog_d
 from .placer import hierarchical_place
 
 from .pythonic_router import collect_pins
+from . import hanan_output
 
 
 logger = logging.getLogger(__name__)
@@ -425,18 +426,28 @@ def router_driver(*, cap_map, cap_lef_s,
                 hrouter.LoadLayers(str(ipath / 'layers.json'))
                 ndrfn = ipath / 'ndr.json'
                 ndrfn = str(ndrfn) if ndrfn.exists() else ""
-                
+                # the router excludes only the NDR file's do_not_route nets: add the DoNotRoute constraints
+                placement_dict = scaled_placement_verilog_d.dict()
+                ndrfn = hanan_output.ndr_with_do_not_route(ndrfn, placement_dict, ipath / 'hanan_ndr.json')
+
                 with (pathlib.Path(fpath)/scaled_placement_verilog_file).open("r") as fp:
                     pldata = fp.read()
                     if lef_s_in:
-                        hrouter.LoadPlacement(pldata, lef_s_in)
+                        hrouter.LoadPlacement(pldata, lef_s_in, ndrfn)
                     else:
                         with (idir/new_lef_file).open("r") as lfp:
                             lefdata = lfp.read()
                             hrouter.LoadPlacement(pldata, lefdata, ndrfn)
-                
+
                     hrouter.Route("./Results/")
                 logger.info(f"hanan router ended")
+                # the router writes a DEF only: the variant's GDS, LEF and viewer JSON come from it
+                # (each variant routes into the same DEF names, so they are written before the next)
+                if not skipGDS:
+                    res_dict[concrete_top_name] = hanan_output.write_variant(
+                        variant=concrete_top_name, routed_top=tr_tbl.get(concrete_top_name, concrete_top_name),
+                        placement_verilog_d=placement_dict, def_dir="./Results", results_dir="./Results",
+                        input_dir=idir, layers_file=ipath / 'layers.json', cap_map=cap_map, json_dir=".")
 
         
             if router == 'astar':

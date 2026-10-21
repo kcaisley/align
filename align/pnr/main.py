@@ -418,7 +418,12 @@ def generate_pnr(topology_dir, primitive_dir, pdk_dir, output_dir, subckt, *, pr
 
 
         os.chdir(current_working_dir)
-        if router != "hanan":
+        if router == "hanan":
+            # router_driver wrote each routed variant's files (pnr/hanan_output.py)
+            for variant, filemap in results_name_map.items():
+                variants[variant].update({tag: (working_dir / path if isinstance(path, pathlib.Path) and not path.is_absolute() else path)
+                                          for tag, path in filemap.items()})
+        else:
             for variant, (path_name, layout_idx, DB) in results_name_map.items():
 
                 hN = DB.hierTree[layout_idx]
