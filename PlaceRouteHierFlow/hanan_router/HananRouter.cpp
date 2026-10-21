@@ -8,6 +8,13 @@ size_t Node::_nodectr = 0;
 #endif
 #define NUM_POINTS 1000
 
+// a via's landing pad on a metal: the cut and its enclosure, and never narrower than the metal's
+// own width (a narrow enclosure, VencP 0 say, would otherwise leave a pad below the minimum width)
+static int padSize(const DRC::MetalLayer* metal, const int size)
+{
+  return metal ? std::max(size, metal->width()) : size;
+}
+
 Via::Via(const Via& via, const Geom::Point& p) : _l{via._l}, _u{via._u}, _c{via._c}
 {
   _center = via._center.trans(p);
@@ -1928,10 +1935,10 @@ void Router::constructVias(const std::map<int, DRC::ViaArray>* ndrvias)
           }
           via->addCuts(c, wx, wy, va._nx, va._ny, sx, sy);
           Geom::Rect cbbox = via->bbox();
-          auto lx = cbbox.width() + 2 * vl->coverlx();
-          auto ly = cbbox.height() + 2 * vl->coverly();
-          auto ux = cbbox.width() + 2 * vl->coverux();
-          auto uy = cbbox.height() + 2 * vl->coveruy();
+          auto lx = padSize(lp.first, cbbox.width() + 2 * vl->coverlx());
+          auto ly = padSize(lp.first, cbbox.height() + 2 * vl->coverly());
+          auto ux = padSize(lp.second, cbbox.width() + 2 * vl->coverux());
+          auto uy = padSize(lp.second, cbbox.height() + 2 * vl->coveruy());
           via->setLB(Geom::Rect(-lx/2, -ly/2, lx/2, ly/2));
           via->setUB(Geom::Rect(-ux/2, -uy/2, ux/2, uy/2));
           _vias.push_back(via);
@@ -1942,10 +1949,10 @@ void Router::constructVias(const std::map<int, DRC::ViaArray>* ndrvias)
           if (vas.empty()) {
             auto via = std::make_shared<Via>(lp.first->index(), lp.second->index(), v->index());
             auto wx = vl->widthx(), wy = vl->widthy();
-            auto lx = wx + 2 * vl->coverlx();
-            auto ly = wy + 2 * vl->coverly();
-            auto ux = wx + 2 * vl->coverux();
-            auto uy = wy + 2 * vl->coveruy();
+            auto lx = padSize(lp.first, wx + 2 * vl->coverlx());
+            auto ly = padSize(lp.first, wy + 2 * vl->coverly());
+            auto ux = padSize(lp.second, wx + 2 * vl->coverux());
+            auto uy = padSize(lp.second, wy + 2 * vl->coveruy());
             via->setLB(Geom::Rect(-lx/2, -ly/2, lx/2, ly/2));
             via->setUB(Geom::Rect(-ux/2, -uy/2, ux/2, uy/2));
             via->addCuts(Geom::Point(-wx/2, -wy/2), wx, wy);
@@ -1968,10 +1975,10 @@ void Router::constructVias(const std::map<int, DRC::ViaArray>* ndrvias)
               }
               via->addCuts(c, wx, wy, va._nx, va._ny, sx, sy);
               Geom::Rect cbbox = via->bbox();
-              auto lx = cbbox.width() + 2 * vl->coverlx();
-              auto ly = cbbox.height() + 2 * vl->coverly();
-              auto ux = cbbox.width() + 2 * vl->coverux();
-              auto uy = cbbox.height() + 2 * vl->coveruy();
+              auto lx = padSize(lp.first, cbbox.width() + 2 * vl->coverlx());
+              auto ly = padSize(lp.first, cbbox.height() + 2 * vl->coverly());
+              auto ux = padSize(lp.second, cbbox.width() + 2 * vl->coverux());
+              auto uy = padSize(lp.second, cbbox.height() + 2 * vl->coveruy());
               via->setLB(Geom::Rect(-lx/2, -ly/2, lx/2, ly/2));
               via->setUB(Geom::Rect(-ux/2, -uy/2, ux/2, uy/2));
               _vias.push_back(via);
