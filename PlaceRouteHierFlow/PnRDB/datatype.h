@@ -697,6 +697,7 @@ struct GdsDatatype {
   int Pin = 0;
   int Label = 0;
   int Blockage = 0;
+  int LabelLayer = -1;  // the layer a metal's labels go on (LabelLayerNo); -1: the metal's own
 };
 
 struct metal_info {

@@ -5,8 +5,8 @@ components and, per net, the route rectangles (or, for a net it did not route, o
 pins). The astar flow writes its outputs from the PnR database (pnr/main.py, _generate_json);
 for hanan they are written here from the placement (instances and their transformations), the
 primitives' GDS JSON in the PnR input directory and the DEF's rectangles, on the PDK's GDS layers
-(layers.json). The top-level ports are labelled on their nets' first metal rectangle, on the
-layer's Label datatype, as the astar flow labels them.
+(layers.json). The top-level ports are labelled on their nets' first metal rectangle, where the
+layer's LabelLayerNo says, else on its Label datatype, as the astar flow labels them.
 """
 
 import json
@@ -47,15 +47,22 @@ def read_def_nets(path):
 
 
 def gds_layers(layers_file):
-    """Layer name -> (GDS layer, drawing datatype, label datatype or None), from layers.json; and
-    the top metal's width (the outline's margin, as PnRDB/WriteJSON.cpp draws it)."""
+    """Layer name -> (GDS layer, drawing datatype, label (layer, datatype) or None), from
+    layers.json (the label where LabelLayerNo says, else the layer's Label datatype); and the top
+    metal's width (the outline's margin, as PnRDB/WriteJSON.cpp draws it)."""
     with open(layers_file, "rt") as fp:
         data = json.load(fp)
     out = {}
     for layer in data["Abstraction"]:
         datatypes = layer.get("GdsDatatype", {})
         if "GdsLayerNo" in layer and "Draw" in datatypes:
-            out[layer["Layer"]] = (layer["GdsLayerNo"], datatypes["Draw"], datatypes.get("Label"))
+            labels = layer.get("LabelLayerNo") or []
+            label = (
+                (labels[0][0], labels[0][1] if len(labels[0]) > 1 else 0)
+                if labels
+                else (layer["GdsLayerNo"], datatypes["Label"]) if "Label" in datatypes else None
+            )
+            out[layer["Layer"]] = (layer["GdsLayerNo"], datatypes["Draw"], label)
     metals = [layer for layer in data["Abstraction"] if "Pitch" in layer]
     return out, (metals[-1].get("Width") or 0) if metals else 0
 
@@ -155,7 +162,7 @@ def write_variant(*, variant, routed_top, placement_verilog_d, def_dir, results_
                     continue
                 layer, (x0, y0, x1, y1) = rect
                 elements.append(
-                    {"type": "text", "layer": layers[layer][0], "texttype": layers[layer][2], "presentation": 21,
+                    {"type": "text", "layer": layers[layer][2][0], "texttype": layers[layer][2][1], "presentation": 21,
                      "strans": 0, "mag": 3e-08, "width": -1, "xy": [(x0 + x1) // 2, (y0 + y1) // 2], "string": port}
                 )  # fmt: skip
         structures[name] = {"time": TIME, "strname": name, "elements": elements}

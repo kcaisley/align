@@ -94,8 +94,12 @@ def translate_data( macro_name, exclude_pattern, pdkfile, pinSwitch, data, via_g
                   if (not labelOnce) or (labelOnce and obj["netName"] not in labels):
                       bbox = list(map(scale, obj['rect']))
                       xy = [int((bbox[0] + bbox[2])/ 2), int((bbox[1] + bbox[3]) /2)]
-                      strct["elements"].append ({"layer" : j[k]['GdsLayerNo'], "type": "text",
-                                   "texttype" : j[k]['GdsDatatype']['Label'], "string" : obj["netName"],
+                      # a metal's labels go where its LabelLayerNo says (where gds2lefjson reads them), else on its own layer
+                      label_layers = j[k]['LabelLayerNo'] if 'LabelLayerNo' in j[k] else []
+                      layer, texttype = (label_layers[0][0], label_layers[0][1] if len(label_layers[0]) > 1 else 0) if label_layers \
+                          else (j[k]['GdsLayerNo'], j[k]['GdsDatatype']['Label'])
+                      strct["elements"].append ({"layer" : layer, "type": "text",
+                                   "texttype" : texttype, "string" : obj["netName"],
                                    "xy" : xy})
                       labels.add(obj["netName"])
       else:

@@ -103,6 +103,12 @@ void PnRdatabase::ReadPDKJSON(std::string drfile) {
         tmp_metal.gds_datatype.Pin = Pinnum;
         tmp_metal.gds_datatype.Label = Labelnum;
         tmp_metal.gds_datatype.Blockage = Blockagenum;
+        // labels where LabelLayerNo says ([layer, datatype], the first pair), as the GDS readers take them
+        if (layer.find("LabelLayerNo") != layer.end() && !layer["LabelLayerNo"].empty()) {
+          const json& label = layer["LabelLayerNo"][0];
+          tmp_metal.gds_datatype.LabelLayer = label[0];
+          tmp_metal.gds_datatype.Label = label.size() > 1 ? (int)label[1] : 0;
+        }
 #endif
         if (ldir.compare("V") == 0) {
           tmp_metal.direct = 0;

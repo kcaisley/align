@@ -219,8 +219,9 @@ void addTextElements(json& jsonElements, int cenX, int cenY, int layer, const Pn
   double test_mag = 3e-8;
   json element;
   element["type"] = "text";
-  element["layer"] = layer;
-  element["texttype"] = drc_info.Metal_info.at(layer_index).gds_datatype.Label;
+  const PnRDB::GdsDatatype& gds = drc_info.Metal_info.at(layer_index).gds_datatype;
+  element["layer"] = gds.LabelLayer >= 0 ? gds.LabelLayer : layer;
+  element["texttype"] = gds.Label;
   // std::cout << "add Text Elements Test" << layer_index << layer << element["texttype"] << std::endl;
   // reminder, layer_index is not metal layer number. It is the index of metal in drc_info.Metal_info
   element["presentation"] = JSON_Presentation(test_font, test_vp, test_hp);
