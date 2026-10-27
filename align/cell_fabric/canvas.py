@@ -469,9 +469,12 @@ class Canvas:
                 data['terminals'].append( { "netName": ly + '_grid', "layer": ly, "rect": r})
 
 
-    def writeGDS(self, fp1, timestamp=None):
+    def writeGDS(self, fp1, timestamp=None, *, macro_name='foo', pin_switch=1):
+        """Write the canvas as GDS to the binary file ``fp1``, its layers mapped by the PDK's
+        layers.json (``self.pdk``, which ``loadPDK`` or the constructor sets); ``pin_switch``
+        nonzero draws pins and their labels."""
 
-        assert self.gds_layer_map is not None
+        assert self.pdk is not None and hasattr(self.pdk, 'layerfile'), "writeGDS needs a PDK loaded from its layers.json"
 
         with io.StringIO() as fp0:
             self.writeJSON(fp0)
@@ -479,9 +482,7 @@ class Canvas:
 
         with io.StringIO( contents) as fp0, \
              io.StringIO() as fp_tmp:
-            # TODO: Update this
-            raise NotImplementedError("Translate api has changed but canvas hasn't been updated")
-            translate( 'foo', '', fp0, fp_tmp, self.gds_layer_map, timestamp=timestamp)
+            translate( macro_name, '', pin_switch, fp0, fp_tmp, timestamp=timestamp, p=self.pdk)
             contents2 = fp_tmp.getvalue()
 
         with io.StringIO( contents2) as fp0:
