@@ -148,10 +148,8 @@ def generate_primitives(primitive_lib, pdk_dir, primitive_dir, netlist_dir, blac
         if block_args['primitive'] != 'generic' and block_args['primitive'] != 'guard_ring' and block_args['primitive'] != 'black_box':
             primitive_def = primitive_lib.find(block_args['abstract_template_name'])
             assert primitive_def is not None, f"unavailable primitive definition {block_name} of type {block_args['abstract_template_name']}"
-        elif block_args['primitive'] == 'guard_ring' or block_args['primitive'] == 'black_box':
+        else:  # 'generic', 'guard_ring' or 'black_box': generate_primitive dispatches on the name
             primitive_def = block_args['primitive']
-         #else:
-         #    primitive_def = block_args['primitive']
         block_args.pop("primitive", None)
         uc = generate_primitive(block_name, primitive_def,  ** block_args,
                                 pdkdir=pdk_dir, outputdir=primitive_dir, netlistdir=netlist_dir, blackbox_dir=blackbox_dir, scale=scale)
