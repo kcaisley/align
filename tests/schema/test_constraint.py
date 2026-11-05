@@ -284,3 +284,75 @@ def test_ConstraintDB_parent_relationship(db):
         db.append(constraint.Order(direction='left_to_right', instances=['M1', 'M3']))
         for const in db:
             assert const.parent == db
+
+
+def test_PlaceOnBoundary_sides_and_corners(db):
+    with set_context(db):
+        c = constraint.PlaceOnBoundary(north=['M1', 'm2'], south=['M3'], northwest='M4', southeast='m5')
+    assert c.north == ['M1', 'M2'] and c.south == ['M3']
+    assert c.northwest == 'M4' and c.southeast == 'M5'
+    assert c.instances_on(['north', 'northwest']) == ['M1', 'M2', 'M4']
+    with set_context(db):
+        with pytest.raises(Exception):
+            constraint.PlaceOnBoundary(east=['undefined'])
+        with pytest.raises(Exception):
+            constraint.PlaceOnBoundary(southwest='undefined')
+
+
+def test_Stackup_slices(db):
+    with set_context(db):
+        cap = constraint.Stackup(instances=['M1'], min_layer='M4', max_layer='M7')
+        drivers = constraint.Stackup(instances=['M2', 'M3'], max_layer='M3')
+        upper = constraint.Stackup(instances=['M4'], min_layer='M3', max_layer='M5')
+        assert cap.slice() == (4, 7) and drivers.slice() == (0, 3)
+        with pytest.raises(Exception):
+            constraint.Stackup(instances=['M5'], min_layer='M5', max_layer='M2')
+        with pytest.raises(Exception):
+            constraint.Stackup(instances=['M5'], max_layer='poly')
+    apart = constraint.stacked_apart([cap, drivers, upper])
+    assert apart == {frozenset(('M1', 'M2')), frozenset(('M1', 'M3'))}  # M4 meets both at M3 and M4
+
+
+def test_Stackup_lets_a_group_overlap_an_instance_in_another_slice(db):
+    with set_context(db):
+        db.append(constraint.GroupBlocks(instance_name='XG', instances=['M1', 'M2']))
+        db.append(constraint.Stackup(instances=['XG'], max_layer='M3'))
+        db.append(constraint.Stackup(instances=['M3'], min_layer='M4', max_layer='M7'))
+        # the group and M3 share their lower left corner: they overlap
+        db.append(constraint.Align(instances=['XG', 'M3'], line='h_bottom'))
+        db.append(constraint.Align(instances=['XG', 'M3'], line='v_left'))
+
+
+def test_a_group_still_keeps_out_an_instance_in_its_slice(db):
+    with set_context(db):
+        db.append(constraint.GroupBlocks(instance_name='XG', instances=['M1', 'M2']))
+        db.append(constraint.Stackup(instances=['XG'], max_layer='M4'))
+        db.append(constraint.Stackup(instances=['M3'], min_layer='M4', max_layer='M7'))
+        db.append(constraint.Align(instances=['XG', 'M3'], line='h_bottom'))
+        with pytest.raises(SolutionNotFoundError):
+            db.append(constraint.Align(instances=['XG', 'M3'], line='v_left'))
+
+
+def test_PlaceOnBoundary_rebuilt_from_its_dict(db):
+    with set_context(db):
+        c = constraint.PlaceOnBoundary(south=['M1'])
+        again = constraint.PlaceOnBoundary(**c.dict(exclude={'constraint'}))
+    assert again.south == ['M1'] and again.northwest is None and again.north is None
+
+
+def test_Floorplan_orders_no_region_against_one_stacked_apart(db):
+    with set_context(db):
+        db.append(constraint.Stackup(instances=['M1', 'M2'], max_layer='M3'))
+        db.append(constraint.Stackup(instances=['M3'], min_layer='M4', max_layer='M7'))
+        fp = constraint.Floorplan(regions=[['M1'], ['M3'], ['M2']], order=True)
+        db.append(fp)
+        orders = [tuple(c.instances) for c in fp.yield_constraints() if isinstance(c, constraint.Order)]
+    assert orders == [('M1', 'M2')]  # the stacked region between orders neither; the two about it each other
+
+
+def test_Floorplan_without_stackups_orders_each_region_above_the_next(db):
+    with set_context(db):
+        fp = constraint.Floorplan(regions=[['M1'], ['M3'], ['M2']], order=True)
+        db.append(fp)
+        orders = [tuple(c.instances) for c in fp.yield_constraints() if isinstance(c, constraint.Order)]
+    assert orders == [('M1', 'M3'), ('M3', 'M2')]

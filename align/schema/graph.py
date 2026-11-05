@@ -180,6 +180,11 @@ class Graph(networkx.Graph):
             new_subckt = self.create_subckt_instance(subckt, match)
             new_subckt_names.append(new_subckt.name)
 
+            # the checker built while the matched elements still stand: a full check once they are
+            # gone (one a Stackup left to the next append) finds the constraints naming them before
+            # the translator below renames them to the new instance
+            if self.subckt.name and self.subckt._checker is None:
+                self.subckt.verify()
             nodes = list()
             for node in sorted(removal_candidates):
                 # Elements only

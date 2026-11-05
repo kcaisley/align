@@ -139,7 +139,8 @@ class Annotate:
                     id.append(repeat[pins[pin]])
             return "".join(id)
         #create unique order of instances, making it independent of unstance name
-        insts = sorted(insts, key=lambda inst: pin_id(inst.pins)+'_'.join([k+':'+str(inst.parameters[k]) for k in sorted(inst.parameters.keys())]))
+        # frida: a member that is a group (a nested GroupBlocks) has no parameters
+        insts = sorted(insts, key=lambda inst: pin_id(inst.pins)+'_'.join([k+':'+str((inst.parameters or {})[k]) for k in sorted((inst.parameters or {}).keys())]))
         inst_names = {"M"+str(i):inst for i,inst in enumerate(insts)}
         # Filter internal nets but skip internal net connected to port
 
@@ -192,6 +193,14 @@ class Annotate:
                 for child_constraint in constraints_for_group:
                     if hasattr(child_constraint, "_instance_attribute"):
                         recursive_replace(getattr(child_constraint, child_constraint._instance_attribute), instance_map)
+                    # frida: a constraint naming instances in several fields (PlaceOnBoundary's sides
+                    # and corners), each renamed to the group's own names
+                    for field in getattr(child_constraint, "_instance_fields", ()):
+                        value = getattr(child_constraint, field, None)
+                        if isinstance(value, str):
+                            object.__setattr__(child_constraint, field, instance_map[value.upper()])
+                        elif value is not None:
+                            recursive_replace(value, instance_map)
                     child_constraint._parent = new_subckt.constraints
                     with set_context(new_subckt.constraints):
                         logger.debug(f"Appended {child_constraint} to {new_subckt_name}")

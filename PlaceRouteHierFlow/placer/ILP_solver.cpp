@@ -642,6 +642,7 @@ double ILP_solver::GenerateValidSolutionAnalytical(design& mydesign, PnRDB::Drc_
   // overlap constraint
   for (unsigned int i = 0; i < mydesign.Blocks.size(); i++) {
     for (unsigned int j = i + 1; j < mydesign.Blocks.size(); j++) {
+      if (mydesign.stackedApart(i, j)) continue;  // their slices of the stack-up are disjoint (Stackup)
       if (block_order[i][j] & 0x0001) {
         // i is at the left of j
         double sparserow[2] = {-1, 1};
@@ -1259,6 +1260,7 @@ bool ILP_solver::FrameSolveILPLpsolve(const design& mydesign, const SeqPair& cur
     int i_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), i) - curr_sp.posPair.begin();
     int i_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), i) - curr_sp.negPair.begin();
     for (unsigned int j = i + 1; j < mydesign.Blocks.size(); j++) {
+      if (mydesign.stackedApart(i, j)) continue;  // their slices of the stack-up are disjoint (Stackup)
       int j_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), j) - curr_sp.posPair.begin();
       int j_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), j) - curr_sp.negPair.begin();
       if (i_pos_index < j_pos_index) {
@@ -2063,6 +2065,7 @@ bool ILP_solver::FrameSolveILPCore(const design& mydesign, const SeqPair& curr_s
     int i_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), i) - curr_sp.posPair.begin();
     int i_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), i) - curr_sp.negPair.begin();
     for (unsigned int j = i + 1; j < mydesign.Blocks.size(); j++) {
+      if (mydesign.stackedApart(i, j)) continue;  // their slices of the stack-up are disjoint (Stackup)
       int j_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), j) - curr_sp.posPair.begin();
       int j_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), j) - curr_sp.negPair.begin();
       if (i_pos_index < j_pos_index) {
@@ -2543,6 +2546,36 @@ bool ILP_solver::FrameSolveILPCore(const design& mydesign, const SeqPair& curr_s
       }
     }
   }
+  // PlaceOnBoundary: a block's side on the frame's. Bottom/left flush: x, y >= halo, area_x >= x + w,
+  // area_y >= y + h; top/right flush: area_x <= x, area_y <= y, x + w <= 0, y + h <= 0
+  for (const auto& boundary : mydesign.Boundary_blocks) {
+    const int i = boundary.first, sides = boundary.second;
+    const auto& blk = mydesign.Blocks[i][curr_sp.selected[i]];
+    // coefficient 1 on the block's coordinate col, coeff on area (none where area is N_var), = value
+    auto equal = [&](const unsigned col, const unsigned area, const double value) {
+      rowindofcol[col].push_back(rhs.size());
+      constrvalues[col].push_back(1);
+      if (area < N_var) {
+        rowindofcol[area].push_back(rhs.size());
+        constrvalues[area].push_back(-1);
+      }
+      sens.push_back('E');
+      rhs.push_back(value);
+      rownames.push_back("B");
+    };
+    if (flushbl) {
+      if (sides & PnRDB::BOUNDARY_WEST) equal(i * 4, N_var, mydesign.halo_horizontal);
+      if (sides & PnRDB::BOUNDARY_SOUTH) equal(i * 4 + 1, N_var, mydesign.halo_vertical);
+      if (sides & PnRDB::BOUNDARY_EAST) equal(i * 4, N_area_x, -blk.width);
+      if (sides & PnRDB::BOUNDARY_NORTH) equal(i * 4 + 1, N_area_y, -blk.height);
+    } else {
+      if (sides & PnRDB::BOUNDARY_EAST) equal(i * 4, N_var, -blk.width);
+      if (sides & PnRDB::BOUNDARY_NORTH) equal(i * 4 + 1, N_var, -blk.height);
+      if (sides & PnRDB::BOUNDARY_WEST) equal(i * 4, N_area_x, 0);
+      if (sides & PnRDB::BOUNDARY_SOUTH) equal(i * 4 + 1, N_area_y, 0);
+    }
+  }
+
   area_ilp = 0.;
   HPWL_ILP = 0.;
   {
@@ -3330,6 +3363,7 @@ double ILP_solver::GenerateValidSolution_select(design& mydesign, SeqPair& curr_
     int i_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), i) - curr_sp.posPair.begin();
     int i_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), i) - curr_sp.negPair.begin();
     for (unsigned int j = i + 1; j < mydesign.Blocks.size(); j++) {
+      if (mydesign.stackedApart(i, j)) continue;  // their slices of the stack-up are disjoint (Stackup)
       int j_pos_index = find(curr_sp.posPair.begin(), curr_sp.posPair.end(), j) - curr_sp.posPair.begin();
       int j_neg_index = find(curr_sp.negPair.begin(), curr_sp.negPair.end(), j) - curr_sp.negPair.begin();
       if (i_pos_index < j_pos_index) {

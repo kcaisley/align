@@ -125,6 +125,14 @@ class design {
   std::vector<pair<pair<int, int>, placerDB::Smark>> Ordering_Constraints;
   std::vector<pair<pair<int, int>, placerDB::Smark>> Abut_Constraints;
   vector<set<int>> Same_Template_Constraints;
+  vector<pair<int, int>> Boundary_blocks;  // PlaceOnBoundary: a block and its sides (PnRDB::BOUNDARY_*)
+  std::map<int, pair<int, int>> Stackup_blocks;  // Stackup: a block's slice of the stack-up (lowest, highest level)
+  // whether blocks i and j may overlap: each in a slice of the stack-up (Stackup), the slices disjoint
+  bool stackedApart(const int i, const int j) const {
+    const auto a = Stackup_blocks.find(i), b = Stackup_blocks.find(j);
+    if (a == Stackup_blocks.end() || b == Stackup_blocks.end()) return false;
+    return a->second.second < b->second.first || b->second.second < a->second.first;
+  }
   double Aspect_Ratio_weight = 1000;
   int placement_id = -1;
   bool is_first_ILP = true;

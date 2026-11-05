@@ -30,6 +30,8 @@ design::design(PnRDB::hierNode& node, PnRDB::Drc_info& drcInfo, const int seed) 
   memcpy(Aspect_Ratio, node.Aspect_Ratio, sizeof(node.Aspect_Ratio));
   memcpy(placement_box, node.placement_box, sizeof(node.placement_box));
   Same_Template_Constraints = node.Same_Template_Constraints;
+  Boundary_blocks = node.Boundary_blocks;
+  Stackup_blocks = node.Stackup_blocks;
   grid_unit_x = drcInfo.Metal_info[0].grid_unit_x;
   grid_unit_y = drcInfo.Metal_info[1].grid_unit_y;
   halo_horizontal = node.boundary.halo_horizontal;

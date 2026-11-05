@@ -618,6 +618,46 @@ void PnRdatabase::ReadConstraint_Json(PnRDB::hierNode& node, const string& jsonS
         temp_const.insert(node.Block_name_map[b]);
       }
       node.Same_Template_Constraints.push_back(temp_const);
+    } else if (constraint["const_name"] == "PlaceOnBoundary") {
+      // each side a list of blocks, each corner one block (two sides)
+      const std::vector<std::pair<std::string, int>> edges{{"north", PnRDB::BOUNDARY_NORTH},
+                                                           {"south", PnRDB::BOUNDARY_SOUTH},
+                                                           {"east", PnRDB::BOUNDARY_EAST},
+                                                           {"west", PnRDB::BOUNDARY_WEST},
+                                                           {"northeast", PnRDB::BOUNDARY_NORTH | PnRDB::BOUNDARY_EAST},
+                                                           {"northwest", PnRDB::BOUNDARY_NORTH | PnRDB::BOUNDARY_WEST},
+                                                           {"southeast", PnRDB::BOUNDARY_SOUTH | PnRDB::BOUNDARY_EAST},
+                                                           {"southwest", PnRDB::BOUNDARY_SOUTH | PnRDB::BOUNDARY_WEST}};
+      std::map<int, int> sides;
+      for (const auto& edge : edges) {
+        if (constraint.find(edge.first) == constraint.end() || constraint[edge.first].is_null()) continue;
+        std::vector<std::string> names;
+        if (constraint[edge.first].is_string()) {
+          names.push_back(constraint[edge.first]);
+        } else {
+          for (const auto& b : constraint[edge.first]) names.push_back(b);
+        }
+        for (const auto& b : names) {
+          if (node.Block_name_map.find(b) == node.Block_name_map.end()) {
+            logger->error("PlaceOnBoundary: no block {0} in {1}", b, node.name);
+            continue;
+          }
+          sides[node.Block_name_map[b]] |= edge.second;
+        }
+      }
+      for (const auto& side : sides) node.Boundary_blocks.push_back(side);
+    } else if (constraint["const_name"] == "Stackup") {
+      // the slice of the stack-up the blocks occupy: from min_layer (none: the devices) up to max_layer, M<n> level n
+      auto level = [](const json& layer) { return layer.is_null() ? 0 : std::stoi(layer.get<std::string>().substr(1)); };
+      const int low = constraint.find("min_layer") == constraint.end() ? 0 : level(constraint["min_layer"]);
+      const int high = level(constraint["max_layer"]);
+      for (const auto& b : constraint["blocks"]) {
+        if (node.Block_name_map.find(b) == node.Block_name_map.end()) {
+          logger->error("Stackup: no block {0} in {1}", b.get<std::string>(), node.name);
+          continue;
+        }
+        node.Stackup_blocks[node.Block_name_map[b]] = std::make_pair(low, high);
+      }
     } else if (constraint["const_name"] == "CompactPlacement") {
       node.compact_style = constraint["style"];
     } else if (constraint["const_name"] == "DoNotRoute") {
@@ -660,15 +700,19 @@ void PnRdatabase::ReadConstraint_Json(PnRDB::hierNode& node, const string& jsonS
       }
       node.SpreadConstraints.push_back(s);
     } else if (constraint["const_name"] == "Route") {
+      // a layer left unset (absent or null) is empty: the PDK's default routing layer
+      auto layer = [](const json& c, const char* key) {
+        return c.contains(key) && c[key].is_string() ? c[key].get<std::string>() : std::string();
+      };
       PnRDB::Routing_Layers_Info tmp_routing;
-      tmp_routing.global_min_layer = constraint["min_layer"];
-      tmp_routing.global_max_layer = constraint["max_layer"];
+      tmp_routing.global_min_layer = layer(constraint, "min_layer");
+      tmp_routing.global_max_layer = layer(constraint, "max_layer");
       for(auto netset: constraint["customize"]){//if the key does not exist, should assign NULL	
         PnRDB::Min_Max_Routing_Layer_Per_Net tmp_routing_net;
       
         for(auto net_name: netset["nets"]){
-          tmp_routing_net.net_min_layer = netset["min_layer"];
-          tmp_routing_net.net_max_layer = netset["max_layer"];
+          tmp_routing_net.net_min_layer = layer(netset, "min_layer");
+          tmp_routing_net.net_max_layer = layer(netset, "max_layer");
           tmp_routing_net.net_name = net_name;
           tmp_routing.Routing_per_Net.push_back(tmp_routing_net);
         }

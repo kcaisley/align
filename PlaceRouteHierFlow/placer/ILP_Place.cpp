@@ -642,6 +642,7 @@ bool ILP_solver::PlaceILPCbc_select(SolutionMap& sol, const design& mydesign, co
     auto italignv  = align_constr_map_v.find(i);
     for (unsigned int j = i + 1; j < mydesign.Blocks.size(); j++) {
       //if (itoverlap != overlap_constr_map.end() && itoverlap->second.find(j) != itoverlap->second.end()) continue;
+      if (mydesign.stackedApart(i, j)) continue;  // their slices of the stack-up are disjoint (Stackup)
       bool cont{false};
       for (auto& itord : mydesign.Ordering_Constraints) {
         if ((itord.first.first == i && itord.first.second == j) || (itord.first.first == j && itord.first.second == i)) {

@@ -110,6 +110,19 @@ class ConstraintTranslator():
 
         logger.debug(f"update constraints of {self.parent_name} with {new_inst_name} map {node_map}")
         for const in self.parent_const:
+            # frida: a constraint naming instances in several fields (PlaceOnBoundary's sides and
+            # corners): the matched ones the new instance, once a side
+            for field in getattr(const, "_instance_fields", ()):
+                value = getattr(const, field, None)
+                if isinstance(value, str):
+                    if value in node_map:
+                        object.__setattr__(const, field, new_inst_name)
+                elif value is not None and set(value) & set(node_map.keys()):
+                    for old_inst in [v for v in value if v in node_map]:
+                        if new_inst_name in value:
+                            value.remove(old_inst)
+                        else:
+                            _list_replace(value, old_inst, new_inst_name)
             if hasattr(const, "instances") and not isinstance(const,constraint.GroupBlocks):
                 # checking instances in the constraint and update names
                 if set(const.instances) & set(node_map.keys()):

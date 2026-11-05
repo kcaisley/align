@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from itertools import combinations
 from collections import defaultdict
 from ..cell_fabric import transformation
+from ..schema import constraint
 
 from .. import PnR
 
@@ -253,11 +254,30 @@ def standalone_overlap_checker( placement_verilog_d, top_cell):
         return max( rA[0], rB[0]) < min( rA[2], rB[2]) and max( rA[1], rB[1]) < min( rA[3], rB[3])
         #return rA[0] < rB[2] and rB[0] < rA[2] and rA[1] < rB[3] and rB[1] < rA[3]
 
+    modules = { x['concrete_name']: x for x in placement_verilog_d['modules']}
+    apart_of = {}  # each module's stacked-apart pairs, computed once
+
+    def stacked_apart( hovertext_a, hovertext_b):
+        # two leaves may overlap where the instances they descend from in their deepest common
+        # module have disjoint slices of the stack-up there (Stackup)
+        path_a, path_b = (tuple(h.split('<br>')[0].split('/')) for h in (hovertext_a, hovertext_b))
+        module = modules.get(top_cell)
+        for a, b in zip(path_a, path_b):
+            if module is None:
+                return False
+            if a != b:
+                if module['concrete_name'] not in apart_of:
+                    apart_of[module['concrete_name']] = constraint.stacked_apart(module['constraints'])
+                return frozenset((a.upper(), b.upper())) in apart_of[module['concrete_name']]
+            instance = next((i for i in module['instances'] if i['instance_name'] == a), None)
+            module = modules.get(instance['concrete_template_name']) if instance is not None else None
+        return False
+
     leaves = [ (r, hovertext) for r, hovertext, isleaf, _, ispin in gen_boxes_and_hovertext( placement_verilog_d, top_cell) if isleaf and not ispin]
     logger.debug( f'Checking {len(leaves)} bboxes for overlap')
     ok = True
     for a,b in combinations(leaves,2):
-        if rects_overlap( a[0], b[0]):
+        if rects_overlap( a[0], b[0]) and not stacked_apart( a[1], b[1]):
             ok = False
             # logger.error( f'Leaves {a} and {b} intersect')
             assert False, f'Leaves {a} and {b} intersect'

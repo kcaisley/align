@@ -578,8 +578,18 @@ class Floorplan(UserConstraint):
             logger.debug("=== Floorplan ========================")
             # Regions from top to bottom
             logger.debug("===========================")
-            for i in range(len(self.regions)-1):
-                for [above, below] in plain_itertools.product(self.regions[i], self.regions[i+1]):
+            # instances in disjoint slices of the stack-up (Stackup) order nothing between them: a
+            # region over others is ordered with none of them, and the regions about it are ordered
+            # with each other directly (without Stackups, each region with the next as ever)
+            apart = stacked_apart(self._parent) if self._parent is not None else set()
+            pairs = (
+                [(i, i + 1) for i in range(len(self.regions) - 1)] if not apart else
+                [(i, j) for i in range(len(self.regions)) for j in range(i + 1, len(self.regions))]
+            )
+            for i, j in pairs:
+                for [above, below] in plain_itertools.product(self.regions[i], self.regions[j]):
+                    if frozenset((above.upper(), below.upper())) in apart:
+                        continue
                     logger.debug(f'Above:{above} Below:{below}')
                     above_below.add((above, below))
                     assert (below, above) not in above_below, \
@@ -744,27 +754,97 @@ class PlaceOnBoundary(SoftConstraint):
     northwest: Optional[str]
     southeast: Optional[str]
     southwest: Optional[str]
+    # frida: the fields naming instances, renamed with them where a group takes the constraint
+    _instance_fields = ('north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest')
 
-    @types.validator('north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest', allow_reuse=True)
-    def instance_validator(cls, value):
-        if isinstance(value, list):
-            return validate_instances(cls, value)
-        else:
-            return validate_instances(cls, [value])
+    # a side's instances arrive as this schema's List (a model, not a Python list); a corner is one
+    # name; an unset one None (a constraint rebuilt from its dict carries every field)
+    @types.validator('north', 'south', 'east', 'west', allow_reuse=True)
+    def side_validator(cls, value):
+        return None if value is None else validate_instances(cls, value)
+
+    @types.validator('northeast', 'northwest', 'southeast', 'southwest', allow_reuse=True)
+    def corner_validator(cls, value):
+        return None if value is None else validate_instances(cls, [value])[0]
 
     def instances_on(cls, lst):
         sublist = list()
         for attr in lst:
             if value := getattr(cls, attr, False):
-                if isinstance(value, list):
-                    sublist.extend(value)
-                else:
+                if isinstance(value, str):
                     sublist.append(value)
+                else:
+                    sublist.extend(value)
         return sublist
 
     def yield_constraints(self):
         instances = self.instances_on(['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest'])
         yield DoNotIdentify(instances=instances)
+
+
+class Stackup(SoftConstraint):
+    '''
+    The slice of the metal stack-up `instances` occupy: from `min_layer` (omitted: from the devices,
+    the front end of line) up to `max_layer`. Two instances whose slices do not intersect may be
+    placed over one another: a capacitor drawn in the upper metals over transistors routed below it.
+    An instance with no Stackup occupies the whole stack-up and overlaps nothing.
+
+    State Stackups after the other constraints: appending one lifts the non-overlap the consistency
+    check holds, so the next constraint with a check re-verifies the whole subcircuit at once, which
+    with many groups takes minutes rather than seconds.
+
+    Args:
+        instances (list[str]): the instances (or groups) in the slice
+        min_layer (str, optional): its lowest metal, `M<n>`; omitted: the devices
+        max_layer (str): its highest metal, `M<n>`
+
+    Example: ::
+
+        {"constraint": "Stackup", "instances": ["XCAP"], "min_layer": "M4", "max_layer": "M7"}
+        {"constraint": "Stackup", "instances": ["XDRV0", "XDRV1"], "max_layer": "M3"}
+    '''
+    instances: List[str]
+    min_layer: Optional[str]
+    max_layer: str
+    _instance_attribute: str = "instances"  # frida: renamed with its instances where a group takes it
+
+    _inst_validator = types.validator('instances', allow_reuse=True)(validate_instances)
+
+    @types.validator('min_layer', 'max_layer', allow_reuse=True)
+    def layer_validator(cls, value):
+        assert value is None or re.fullmatch(r'M[0-9]+', value), f'{value} is not a metal M<n>'
+        return value
+
+    @types.validator('max_layer', allow_reuse=True)
+    def order_validator(cls, value, values):
+        if values.get('min_layer') is not None:
+            assert stack_level(values['min_layer']) <= stack_level(value), f'{values["min_layer"]} is above {value}'
+        return value
+
+    def slice(self):
+        '''(lowest, highest) level: the devices 0, `M<n>` n.'''
+        return stack_level(self.min_layer), stack_level(self.max_layer)
+
+
+def stack_level(layer):
+    '''A metal's level in the stack-up: `M<n>` is n; None (the devices) is 0.'''
+    return 0 if layer is None else int(layer[1:])
+
+
+def stacked_apart(constraints):
+    '''The pairs of instances (frozensets of their upper-case names) that `Stackup` lets overlap:
+    each in a slice, the slices disjoint.'''
+    slices = {}
+    for const in constraints:
+        if getattr(const, 'constraint', None) == 'Stackup':
+            for name in const.instances:
+                slices[name.upper()] = const.slice()
+    names = sorted(slices)
+    return {
+        frozenset((a, b))
+        for i, a in enumerate(names) for b in names[i + 1:]
+        if slices[a][1] < slices[b][0] or slices[b][1] < slices[a][0]
+    }
 
 
 class PowerPorts(SoftConstraint):
@@ -1439,7 +1519,11 @@ class GroupBlocks(HardConstraint):
         SymmetricBlocks,
         DoNotIdentify,
         SameTemplate,
-        ConfigureCompiler]]] = None
+        ConfigureCompiler,
+        # frida: a group stacked over its own transistor rows, its pins on its boundary, its routing layers
+        Stackup,
+        PlaceOnBoundary,
+        Route]]] = None
 
     @types.validator('instance_name', allow_reuse=True)
     def group_block_name(cls, value):
@@ -1453,13 +1537,27 @@ class GroupBlocks(HardConstraint):
         bb = solver.bbox_vars(self.instance_name)
         yield bb.llx < bb.urx
         yield bb.lly < bb.ury
+        # frida: a group of one device (a template matched to a single element, as the compiler
+        # makes for each device of a primitive's own) is that device's box: the subcircuit's own
+        # non-overlap holds it, so nothing more to check (against every other instance it cost an
+        # O(n) disjunction a group, O(n^2) solved again at each of a large array's n matches)
+        if len(self.instances) == 1:
+            return
         # Grouping into common bbox
         for b in solver.iter_bbox_vars((x for x in self.instances if x in instances)):
             yield b.urx <= bb.urx
             yield b.llx >= bb.llx
             yield b.ury <= bb.ury
             yield b.lly >= bb.lly
-        for b in solver.iter_bbox_vars((x for x in instances if x not in self.instances)):
+        # the instances outside the group: not its members, not the group itself (once appended, its
+        # name is among the instances), and not in a slice of the stack-up apart from its (Stackup)
+        apart = stacked_apart(self.parent) if self.parent is not None else set()
+        outside = (
+            x for x in instances
+            if x not in self.instances and x.upper() != self.instance_name.upper()
+            and frozenset((x.upper(), self.instance_name.upper())) not in apart
+        )
+        for b in solver.iter_bbox_vars(outside):
             yield solver.Or(
                 b.urx <= bb.llx,
                 bb.urx <= b.llx,
@@ -1503,6 +1601,7 @@ ConstraintType = Union[
     ClockPorts,
     DoNotUseLib,
     ConfigureCompiler,
+    Stackup,
     NetPriority,
     Route,
     ChargeFlow
@@ -1520,6 +1619,9 @@ class ConstraintDB(types.List[ConstraintType]):
                 self.parent.verify(constraint=constraint)
             super().append(constraint)
             self._cache.add(constraint_str)
+            if isinstance(constraint, Stackup):
+                # it lifts the non-overlap the checker already holds: the next check starts over
+                self.parent._checker = None
         else:
             logger.debug(f"Constraint is duplicated: {constraint_str}")
 

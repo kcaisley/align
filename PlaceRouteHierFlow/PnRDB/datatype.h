@@ -495,6 +495,8 @@ struct hierNode {
   vector<pair<vector<int>, Smark>> Ordering_Constraints;
   vector<pair<vector<int>, Smark>> Abut_Constraints;
   vector<set<int>> Same_Template_Constraints;
+  vector<pair<int, int>> Boundary_blocks;  // PlaceOnBoundary: a block and its sides on the placement's (BOUNDARY_*)
+  std::map<int, pair<int, int>> Stackup_blocks;  // Stackup: a block's slice of the stack-up, (lowest, highest) level: 0 the devices, n metal n
   int bias_Hgraph = 0;
   int bias_Vgraph = 0;
   double Aspect_Ratio_weight = 1000;
@@ -570,6 +572,9 @@ struct MatchBlock {
   // int distance;
   // int horizon; // 1 is h, 0 is v.
 };
+
+// PlaceOnBoundary's sides, ORed: a corner is two
+enum BoundarySide { BOUNDARY_NORTH = 1, BOUNDARY_SOUTH = 2, BOUNDARY_EAST = 4, BOUNDARY_WEST = 8 };
 
 struct AlignBlock {
   std::vector<int> blocks;  // LL.x/LL.y equal
