@@ -470,7 +470,10 @@ GcellGlobalRouter::GcellGlobalRouter(PnRDB::hierNode &node, PnRDB::Drc_info &drc
   // 2. create GcellGlobalGrid
   // CreateGrid for within the region LL, UR
   int tile_size = 0;
-  int chip_size = (UR.x - LL.x) * (UR.y - LL.y);
+  // frida: the area in 64 bits. As an int it overflowed for cells above ~537 um2 (2 router units a
+  // nm), wrapped negative and gave every large cell the smallest tiles (20 tracks), whose narrow
+  // corridors left nets with no detail route
+  const long long chip_size = static_cast<long long>(UR.x - LL.x) * (UR.y - LL.y);
   if (chip_size < 1000000) {
     tile_size = 20;
   } else if (chip_size < 10000000000) {
