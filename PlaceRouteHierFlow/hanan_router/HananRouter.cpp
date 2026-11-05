@@ -350,11 +350,48 @@ Router::Router(const DRC::LayerInfo& lf) : _cf{lf}, _sol{nullptr}, _minLayer{INT
   //}
   _minLayer = lf.signalBottomLayer();
   _maxLayer = lf.signalTopLayer();
+  _defMinLayer = _minLayer;
+  _defMaxLayer = _maxLayer;
+  COUT << "grid grown metal ends on : " << _lf.mfgGrid() << '\n';
   _maxRoutingLayer = static_cast<int>(_widthx.size()) - 1;
   //COUT << "min routing layer : " << LAYER_NAMES[_minLayer] << " max routing layer : " << LAYER_NAMES[_maxLayer] << '\n';
   _nodes.clear();
   _nodes.resize(_maxLayer + 1);
   constructVias();
+}
+
+static const DRC::MetalLayer* metalLayer(const DRC::LayerInfo& lf, const int z)
+{
+  const auto& layers = lf.layers();
+  if (z < 0 || z >= static_cast<int>(layers.size()) || !layers[z]->isMetal()) return nullptr;
+  return static_cast<const DRC::MetalLayer*>(layers[z]);
+}
+
+long long Router::minArea(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return (m && m->minL() > 0 && m->width() > 0) ? static_cast<long long>(m->width()) * m->minL() : 0;
+}
+
+int Router::metalSpace(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  int s = m ? m->space() : 0;
+  if (z >= 0 && z < static_cast<int>(_ndrspacex.size()) && _ndrspacex[z] != INT_MAX) s = std::max(s, _ndrspacex[z]);
+  if (z >= 0 && z < static_cast<int>(_ndrspacey.size()) && _ndrspacey[z] != INT_MAX) s = std::max(s, _ndrspacey[z]);
+  return s;
+}
+
+int Router::endSpace(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return std::max(metalSpace(z), m ? m->e2e() : 0);
+}
+
+int Router::prefDir(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return m ? m->prefDir() : -1;
 }
 
 Node* Router::createNode(const int x, const int y, const int z,
@@ -795,19 +832,41 @@ int Router::snap(const Node* n, const bool vert, const bool up) const
       std::swap(pos, lkp);
     }
     auto itp = grid.find(pos);
-    if (itp != grid.end()) {
-      for (const auto& r : itp->second) {
-        if (lkp >= r.first && lkp <= r.second) {
-          snapc = (up ? r.second : r.first);
-          break;
-        }
+    // a node off the grid's lines (it stopped at a free range's end on another layer, or a via
+    // took it there): its line's free ranges from the obstacles, as generateHananGrid finds them
+    // (taken as wholly free, the route ran through every obstacle on that line)
+    IntRangeSet offgrid;
+    if (itp == grid.end()) offgrid = freeRanges(n->z(), pos, vert);
+    const auto& ranges = (itp != grid.end()) ? itp->second : offgrid;
+    for (const auto& r : ranges) {
+      if (lkp >= r.first && lkp <= r.second) {
+        snapc = (up ? r.second : r.first);
+        break;
       }
-    } else {
-      snapc = (vert ? (up ? _bbox.ymax() : _bbox.ymin())
-          : (up ? _bbox.xmax() : _bbox.xmin()));
     }
   }
   return snapc;
+}
+
+IntRangeSet Router::freeRanges(const int z, const int pos, const bool vert) const
+{
+  IntRangeSet s;
+  auto it = _tobstacles.find(z);
+  if (it != _tobstacles.end()) {
+    for (const auto& o : it->second) {
+      if (vert) {
+        if (pos > o.xmin() && pos < o.xmax()) {
+          insertRange(s, std::make_pair(std::max(o.ymin(), _bbox.ymin() - 1), std::min(o.ymax(), _bbox.ymax())));
+        }
+      } else {
+        if (pos > o.ymin() && pos < o.ymax()) {
+          insertRange(s, std::make_pair(std::max(o.xmin(), _bbox.xmin() - 1), std::min(o.xmax(), _bbox.xmax())));
+        }
+      }
+    }
+  }
+  invertRange(s, vert);
+  return s;
 }
 
 void Router::getTargetGrid(std::set<int>& s, const Node* n, const bool vert, const int snapc)
@@ -1005,7 +1064,7 @@ void Router::expandNode(const Node* n1)
   n->resetexpand();
 }
 
-void Router::insertRange(IntRangeSet& s, const IntPair& r)
+void Router::insertRange(IntRangeSet& s, const IntPair& r) const
 {
   IntPair rc = r;
   std::vector<IntRangeSet::iterator> overlapit;
@@ -1025,7 +1084,7 @@ void Router::insertRange(IntRangeSet& s, const IntPair& r)
   s.insert(rc);
 }
 
-void Router::invertRange(IntRangeSet& s, const bool vert)
+void Router::invertRange(IntRangeSet& s, const bool vert) const
 {
   IntRangeSet sout;
   int start = _bbox.xmin(), end = _bbox.xmax();
@@ -1131,6 +1190,7 @@ Geom::LayerRects Router::findSol()
 #endif
   static std::string debugplot{getenv("HANAN_DEBUG_WIRE") ? getenv("HANAN_DEBUG_WIRE") : ""};
   Geom::LayerRects sol;
+  _searched = false;
   if (!_sources.empty() && !_targets.empty()) {
     for (auto attempt : {0}) {
       if (_targets.size() < _sources.size()) std::swap(_sources,_targets);
@@ -1138,6 +1198,7 @@ Geom::LayerRects Router::findSol()
         std::swap(_sources,_targets);
       }
       COUT << "num src : " << _sources.size() << " tgt : " << _targets.size() << std::endl;
+      _searched = !_sources.empty() && !_targets.empty();
       for (auto& s : _sources) {
         evalTCost(s);
         if (!s->closed()) insertToPQ(s);
@@ -1539,6 +1600,15 @@ void Router::addObstacles(const Geom::LayerRects& lr, const bool temp)
       }
     }
   }*/
+  // the window the search runs in: generateHananGrid widens the sources' and targets' box by twice
+  // the widest space of the routing layers and walls it 50 to 100 beyond, and a route may run up to
+  // the wall, so an obstacle there is kept too (filtered by the box alone, a wire beside the box was
+  // dropped, and a route ran over it)
+  int margin{0};
+  for (auto l = _minLayer; l <= _maxLayer; ++l) {
+    margin = std::max(margin, std::max(_spacex[l], _spacey[l]));
+  }
+  auto window = _bbox.bloatby(2 * margin + 100);
   for (auto& l : lr) {
     const auto& layer = l.first;
     if (!uselayers.empty() && uselayers.find(l.first) == uselayers.end()) continue;
@@ -1625,7 +1695,7 @@ void Router::addObstacles(const Geom::LayerRects& lr, const bool temp)
         if (olsrcortgt) break;
       }
       obs = r.bloatby(x1, y1, x2, y2);
-      if (!olsrcortgt && _bbox.overlaps(obs)) {
+      if (!olsrcortgt && window.overlaps(obs)) {
         if (temp) {
           _tobstacles[layer].push_back(obs);
           //COUT << "tobs : " << layer << ' ' << _tobstacles[layer].back().str() << '\n';

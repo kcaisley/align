@@ -87,6 +87,10 @@ class MetalLayer : public Layer {
       return (_pitch > _width) ? (_pitch - _width) : _pitch;
     }
     int offset() const { return _offset; }
+    int minL() const { return _minL; }
+    int e2e() const { return _e2e; }
+    // the preferred direction: 1 vertical, 0 horizontal, -1 either (orthogonal)
+    int prefDir() const { return (_dir == Direction::VERTICAL) ? 1 : ((_dir == Direction::HORIZONTAL) ? 0 : -1); }
     void setPitch(const int p) {_pitch = p;}
     void setWidth(const int w) {_width = w;}
     void setMinL(const int l) {_minL = l;}
@@ -205,6 +209,7 @@ class LayerInfo {
     MetalLayer *_sbottom, *_stop, *_cbottom, *_ctop, *_pbottom, *_ptop;
     int _topMetal;
     bool _populated;
+    int _mfgGrid{1};  // the grid grown shapes end on (design_info manufacturing_grid, else derived)
   public:
     LayerInfo(const std::string& lj, const int uu);
     void print() const;
@@ -248,6 +253,7 @@ class LayerInfo {
     }
     int signalTopLayer() const { return (_stop ? _stop->index() : _topMetal); }
     bool populated() const { return _populated; }
+    int mfgGrid() const { return _mfgGrid; }
     bool isVertical(const int z) const
     {
       if (z < static_cast<int>(_layers.size()) && _layers[z]->isMetal()) {

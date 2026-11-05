@@ -144,6 +144,9 @@ void Module::route(HRouter::Router& router, const std::string& outdir)
         }
       }
     }
+    // this module's routing layers (its children, routed above, set their own)
+    router.setLayerRange(_minLayer, _maxLayer);
+    COUT << "routing module " << _name << " on layers " << router.minLayer() << " to " << router.maxLayer() << '\n';
     updateNets();
     NetsVec nets;
     for (auto &n : _nets) {
@@ -183,6 +186,19 @@ void Module::route(HRouter::Router& router, const std::string& outdir)
               Geom::MergeLayerRects(netObstaclesUnrouted, p->shapes());
             }
           }
+        }
+      }
+      // the module's outline walls every routing layer in: a route stays half a space inside it (the
+      // walls are kept a space and half a wire away), so it neither leaves the module nor meets a
+      // neighbour's route across the outline (the walls are no obstacles of the module's own, which
+      // its parent inherits)
+      if (_bbox.width() > 0 && _bbox.height() > 0) {
+        for (auto z = router.minLayer(); z <= router.maxLayer(); ++z) {
+          auto& w = netObstaclesUnrouted[z];
+          w.emplace_back(_bbox.xmin() - 60, _bbox.ymin() - 60, _bbox.xmin() - 50, _bbox.ymax() + 60);
+          w.emplace_back(_bbox.xmax() + 50, _bbox.ymin() - 60, _bbox.xmax() + 60, _bbox.ymax() + 60);
+          w.emplace_back(_bbox.xmin() - 60, _bbox.ymin() - 60, _bbox.xmax() + 60, _bbox.ymin() - 50);
+          w.emplace_back(_bbox.xmin() - 60, _bbox.ymax() + 50, _bbox.xmax() + 60, _bbox.ymax() + 60);
         }
       }
       router.setNetName((*it)->name());

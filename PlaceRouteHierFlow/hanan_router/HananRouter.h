@@ -239,7 +239,7 @@ class Router {
     std::vector<Vias> _upVias, _dnVias;
     std::string _name;
     size_t _expansions{0};
-    const size_t _maxExpansions{10000};
+    size_t _maxExpansions{10000};
     std::vector<int> _aboveViaLayer, _belowViaLayer;
     const DRC::LayerInfo& _lf;
     std::map<const Node*, int> _endextnxmin, _endextnymin, _endextnxmax, _endextnymax;
@@ -250,6 +250,8 @@ class Router {
     Geom::LayerTree _ltree;
     std::set<int> _preflayers;
     bool _usepinwidth{false}, _debugplot{false};
+    int _defMinLayer{0}, _defMaxLayer{0};  // layers.json's signal routing layers (design_info)
+    bool _searched{false};
 
     Node* createNode(const int x = 0, const int y = 0, const int z = 0,
         const Node* parent = nullptr, const int fcost = -1, const int tcost = -1);
@@ -276,8 +278,9 @@ class Router {
 
     void insertToPQ(const Node* n);
 
-    void invertRange(IntRangeSet& s, const bool vert);
-    void insertRange(IntRangeSet& s, const IntPair& r);
+    void invertRange(IntRangeSet& s, const bool vert) const;
+    void insertRange(IntRangeSet& s, const IntPair& r) const;
+    IntRangeSet freeRanges(const int z, const int pos, const bool vert) const;
     void expandNode(const Node* n);
     void generateHananGrid();
     void checkAndInsert(Node* newn, const Node* n);
@@ -336,6 +339,15 @@ class Router {
     const int maxRoutingLayer() const { return _maxRoutingLayer; }
     const int maxLayer() const { return _maxLayer; }
     const int minLayer() const { return _minLayer; }
+    // a module's routing layers (its Route constraint): lo/hi < 0 take the default (layers.json's
+    // design_info); kept within the metal stack
+    void setLayerRange(const int lo, const int hi)
+    {
+      _minLayer = (lo >= 0 ? lo : _defMinLayer);
+      _maxLayer = (hi >= 0 ? std::min(hi, _cf.topRoutingLayer()) : _defMaxLayer);
+      if (_maxLayer < _minLayer) _maxLayer = _minLayer;
+      flushNodes();
+    }
     void setName(const std::string& n) { _name = n; }
     void setusepinwidth(const bool u) { _usepinwidth = u; }
 
@@ -385,6 +397,17 @@ class Router {
     void setNetName(const std::string& n) { _netname = n; }
     void setuu(const int uu) { _uu = uu; }
     void allowDetour() { _bbox.expand(std::max(_bbox.width(), _bbox.height()) * 10); }
+    void setMaxExpansions(const size_t n) { _maxExpansions = n; }
+    // a metal's minimum area (layers.json's Width x MinL, 0 where it has no MinL), its space (the
+    // net's NDR space if larger), its end-of-line space (EndToEnd, at least its space), its preferred
+    // direction (1 vertical, 0 horizontal, -1 either), and the grid grown metal ends on
+    long long minArea(const int z) const;
+    int metalSpace(const int z) const;
+    int endSpace(const int z) const;
+    int prefDir(const int z) const;
+    int mfgGrid() const { return _lf.mfgGrid(); }
+    // the last findSol had sources and targets to search between (else no retry can do better)
+    bool searched() const { return _searched; }
     void writeLEF(const Geom::LayerRects* sol = nullptr) const;
     void setEnableDebug(const bool b) { _debugplot = b; }
     bool debug() const { return _debugplot; }

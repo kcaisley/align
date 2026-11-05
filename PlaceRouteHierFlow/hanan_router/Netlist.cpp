@@ -83,6 +83,22 @@ Netlist::Netlist(const std::string& pldata, const::std::string& lefdata, const D
           const auto& b = (*bbox);
           modu->setBBox(Geom::Rect(b[0], b[1], b[2], b[3]));
         }
+        // the module's Route constraint: its nets are routed on min_layer..max_layer (a layer left
+        // unset, or not a metal, takes layers.json's signal routing layer), as the astar flow does
+        auto consts = m.find("constraints");
+        if (consts != m.end() && consts->is_array()) {
+          for (auto& c : *consts) {
+            auto cn = c.find("constraint");
+            if (cn == c.end() || !cn->is_string() || *cn != "Route") continue;
+            int lo{modu->minLayer()}, hi{modu->maxLayer()};
+            auto itl = c.find("min_layer");
+            if (itl != c.end() && itl->is_string()) lo = lf.getLayerIndex(*itl);
+            itl = c.find("max_layer");
+            if (itl != c.end() && itl->is_string()) hi = lf.getLayerIndex(*itl);
+            modu->setLayerRange(lo, hi);
+            COUT << "module " << modu->name() << " routing layers : " << lo << " to " << hi << '\n';
+          }
+        }
         auto insts = m.find("instances");
         if (insts != m.end()) {
           for (auto& inst : *insts) {

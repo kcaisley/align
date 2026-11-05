@@ -84,6 +84,8 @@ class Net {
     unsigned int _detour : 1;
     PortPairs reorderPorts() const;
     PortPairs clockRouteOrder() const;
+    // the net's routed metal islands below their metal's minimum area, lengthened to it
+    void growShortIslands(const HRouter::Router& router, const std::vector<const Geom::LayerRects*>& others, const std::string& modname);
     std::map<int, int> _ndrwidths, _ndrspaces;
     std::map<int, DRC::Direction> _ndrdirs;
     std::set<int> _preflayers;
@@ -197,6 +199,7 @@ class Module {
     Geom::Rect _bbox;
     const int _uu;
     NetsVec _routeorder;
+    int _minLayer{-1}, _maxLayer{-1};  // the module's Route constraint (-1: layers.json's)
 
     void build();
   public:
@@ -220,6 +223,9 @@ class Module {
     const Pins& pins() const { return _pins; }
 
     void setBBox(const Geom::Rect& b) { _bbox = b; }
+    void setLayerRange(const int lo, const int hi) { _minLayer = lo; _maxLayer = hi; }
+    int minLayer() const { return _minLayer; }
+    int maxLayer() const { return _maxLayer; }
     Pin* addPin(const std::string& name)
     {
       Pin* p{nullptr};
