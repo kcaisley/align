@@ -250,6 +250,20 @@ class RemoveDuplicates():
                     pass
                     #logger.warning( f"Different widths: {layer} {sl}")
 
+    def touching_metal(self, layer, twice_center, via_rect):
+        """The rect of ``layer`` a via touches: in the scan line through the via's centre, or, for a
+        wire across the layer's direction (a MOM capacitor's fingers run one way on every metal), in
+        any other scan line of the layer. None where none touches it."""
+        lines = self.store_scan_lines[layer]
+        ordered = ([lines[twice_center]] if twice_center in lines else []) + [
+            line for center, line in lines.items() if center != twice_center
+        ]
+        for line in ordered:
+            for metal_rect in line.rects:
+                if RemoveDuplicates.touching(via_rect.rect, metal_rect.rect):
+                    return metal_rect
+        return None
+
     def check_shorts_induced_by_vias(self):
         for (via, (mv, mh)) in self.canvas.layer_stack:
             if mv is None and mh is None:
@@ -257,22 +271,24 @@ class RemoveDuplicates():
             if via in self.store_scan_lines:
                 for (twice_center, via_scan_line) in self.store_scan_lines[via].items():
                     if mv is not None:
-                        if twice_center not in self.store_scan_lines[mv]:
-                            logger.warning(f"{twice_center} not in self.store_scan_lines[{mv}]. Skipping...")
-                            continue
-                        metal_scan_line_vertical = self.store_scan_lines[mv][twice_center]
                         for via_rect in via_scan_line.rects:
-                            metal_rect_v = metal_scan_line_vertical.find_touching(via_rect)
+                            metal_rect_v = self.touching_metal(mv, twice_center, via_rect)
+                            if metal_rect_v is None:
+                                if twice_center not in self.store_scan_lines[mv]:
+                                    logger.warning(f"{twice_center} not in self.store_scan_lines[{mv}]. Skipping...")
+                                    continue
+                                assert False, (via_rect, self.store_scan_lines[mv][twice_center].rects)
                             self.connectPair(via, metal_rect_v.root(), via_rect.root())
 
                     if mh is not None:
                         for via_rect in via_scan_line.rects:
                             twice_center_y = via_rect.rect[1] + via_rect.rect[3]
-                            if twice_center_y not in self.store_scan_lines[mh]:
-                                logger.warning(f"{twice_center_y} not in self.store_scan_lines[{mh}]. Skipping...")
-                                continue
-                            metal_scan_line_horizontal = self.store_scan_lines[mh][twice_center_y]
-                            metal_rect_h = metal_scan_line_horizontal.find_touching(via_rect)
+                            metal_rect_h = self.touching_metal(mh, twice_center_y, via_rect)
+                            if metal_rect_h is None:
+                                if twice_center_y not in self.store_scan_lines[mh]:
+                                    logger.warning(f"{twice_center_y} not in self.store_scan_lines[{mh}]. Skipping...")
+                                    continue
+                                assert False, (via_rect, self.store_scan_lines[mh][twice_center_y].rects)
                             self.connectPair(via, via_rect.root(), metal_rect_h.root())
 
     def check_shorts_induced_by_terminals( self):
