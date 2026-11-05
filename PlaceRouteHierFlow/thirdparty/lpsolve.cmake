@@ -1,15 +1,24 @@
 # lpsolve 5.5.2.11
+# ALIGN_BUNDLED_LPSOLVE: build this version from source even where the system has an lpsolve (a
+# distribution's may be another version, its headers not installed); ALIGN_LPSOLVE_URL: where its
+# source tarball is (a local copy, file://...), checked against the same hash
+option(ALIGN_BUNDLED_LPSOLVE "Build lpsolve 5.5.2.11 from source, ignoring a system lpsolve" OFF)
+set(ALIGN_LPSOLVE_URL
+  "https://sourceforge.net/projects/lpsolve/files/lpsolve/5.5.2.11/lp_solve_5.5.2.11_source.tar.gz/download"
+  CACHE STRING "lpsolve 5.5.2.11 source tarball")
 FetchContent_Declare(
   lpsolve
-  URL https://sourceforge.net/projects/lpsolve/files/lpsolve/5.5.2.11/lp_solve_5.5.2.11_source.tar.gz/download
+  URL ${ALIGN_LPSOLVE_URL}
   URL_HASH MD5=a829a8d9c60ff81dc72ff52363703886
 )
 # Use bare name so cmake resolves the platform extension (.so on Linux, .dylib on macOS).
-find_library(
-  lpsolve_lib
-  NAMES lpsolve55 liblpsolve55.so
-  PATH_SUFFIXES lpsolve lp_solve)
-if (NOT lpsolve_lib)
+if (NOT ALIGN_BUNDLED_LPSOLVE)
+  find_library(
+    lpsolve_lib
+    NAMES lpsolve55 liblpsolve55.so
+    PATH_SUFFIXES lpsolve lp_solve)
+endif()
+if (ALIGN_BUNDLED_LPSOLVE OR NOT lpsolve_lib)
   message(STATUS "lpsolve library file not found. Building from source.")
   FetchContent_GetProperties(lpsolve)
   if(NOT lpsolve_POPULATED)
