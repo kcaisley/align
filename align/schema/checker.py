@@ -165,6 +165,12 @@ class Z3Checker(AbstractSolver):
         self._solver = z3.Solver()
         self._solver.set(unsat_core=True)
 
+    def __deepcopy__(self, memo):
+        # frida: a copy holds no solver, and its subcircuit builds one at its next check; copying
+        # the solver and every formula in it, at each hierarchy node the placer subsets the design
+        # for, took the placement's bookkeeping many minutes on a large array
+        return None
+
     def annotate(self, formulae, label):
         yield AnnotatedFormula(
         formula=self.And(

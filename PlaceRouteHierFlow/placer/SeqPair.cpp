@@ -91,14 +91,78 @@ OrderedEnumerator::OrderedEnumerator(const vector<int>& seq, const vector<pair<p
   }*/
 }
 
+namespace {
+// frida: the orderings the enumerator walks. Blocks in disjoint slices of the stack-up (Stackup) may
+// overlap, and the ILP relates no such pair (ILP_solver: stackedApart), so each order of the pair
+// in either sequence places alike: each such pair is ordered in each sequence, the way that closes
+// no cycle there. A floorplan that orders everything else then leaves one sequence pair to solve,
+// where the annealing would solve ILP after ILP over sequence pairs that all place the same.
+// Only the enumerator reads these orders; the ILP keeps the design's own.
+vector<std::pair<std::pair<int, int>, placerDB::Smark>> EnumerationOrders(design& casenl) {
+  auto orders = casenl.Ordering_Constraints;
+  if (casenl.Stackup_blocks.size() < 2) return orders;
+  const int n = casenl.GetSizeofBlocks();
+  // each sequence's precedence, as OrderedEnumerator reads an order: H, first before second in
+  // both; V, first before second in the positive sequence, after it in the negative
+  vector<vector<int>> pos(n), neg(n);
+  for (const auto& it : orders) {
+    const int a = it.first.first, b = it.first.second;
+    if (a < 0 || b < 0 || a >= n || b >= n) continue;
+    pos[a].push_back(b);
+    if (it.second == placerDB::V)
+      neg[b].push_back(a);
+    else
+      neg[a].push_back(b);
+  }
+  vector<char> seen(n);
+  auto reaches = [&seen](const vector<vector<int>>& adj, const int from, const int to) {
+    std::fill(seen.begin(), seen.end(), 0);
+    vector<int> stack{from};
+    seen[from] = 1;
+    while (!stack.empty()) {
+      const int v = stack.back();
+      stack.pop_back();
+      if (v == to) return true;
+      for (const int w : adj[v])
+        if (!seen[w]) {
+          seen[w] = 1;
+          stack.push_back(w);
+        }
+    }
+    return false;
+  };
+  size_t added = 0;
+  for (int i = 0; i < n; ++i) {
+    for (int j = i + 1; j < n; ++j) {
+      if (!casenl.stackedApart(i, j)) continue;
+      // i before j in a sequence unless j already precedes i there
+      const bool posFirst = !reaches(pos, j, i), negFirst = !reaches(neg, j, i);
+      const int a = posFirst ? i : j, b = posFirst ? j : i;
+      pos[a].push_back(b);
+      if (posFirst == negFirst) {
+        neg[a].push_back(b);
+        orders.push_back(std::make_pair(std::make_pair(a, b), placerDB::H));
+      } else {
+        neg[b].push_back(a);
+        orders.push_back(std::make_pair(std::make_pair(a, b), placerDB::V));
+      }
+      ++added;
+    }
+  }
+  auto logger = spdlog::default_logger()->clone("placer.SeqPairEnumerator.EnumerationOrders");
+  logger->debug("{0} pairs apart in the stack-up ordered for the enumeration", added);
+  return orders;
+}
+}  // namespace
+
 SeqPairEnumerator::SeqPairEnumerator(const vector<int>& pair, design& casenl, const size_t maxIter)
     : _enumIndex({0, 0}),
       _exhausted(0),
       _valid(1),
       _posPair(pair),
       _maxEnum(SeqPair::Factorial(_posPair.size())),
-      _posEnumerator(pair, casenl.Ordering_Constraints, ceil(sqrt(maxIter)), true),
-      _negEnumerator(pair, casenl.Ordering_Constraints, ceil(sqrt(maxIter)), false) {
+      _posEnumerator(pair, EnumerationOrders(casenl), ceil(sqrt(maxIter)), true),
+      _negEnumerator(pair, EnumerationOrders(casenl), ceil(sqrt(maxIter)), false) {
   auto logger = spdlog::default_logger()->clone("placer.SeqPairEnumerator.SeqPairEnumerator");
   size_t totEnum = _maxEnum * _maxEnum;
   _selmap.clear();
