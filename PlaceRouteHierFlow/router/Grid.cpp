@@ -23,6 +23,7 @@ Grid::Grid(const Grid& other)
       GridLL(other.GridLL),
       GridUR(other.GridUR),
       vertices_total_map(other.vertices_total_map),
+      vertices_total_copy(other.vertices_total_copy),
       drc_info(other.drc_info),
       lowest_metal(other.lowest_metal),
       highest_metal(other.highest_metal),
@@ -77,7 +78,27 @@ Grid& Grid::operator=(const Grid& other) {
   this->grid_scale = other.grid_scale;
   this->layerNo = other.layerNo;
   this->vertices_total_map = other.vertices_total_map;
+  this->vertices_total_copy = other.vertices_total_copy;
   return *this;
+}
+
+// frida: chain each vertex to its copies (other vertices of its metal at its point), the first copy
+// being the one vertices_total_map holds
+void Grid::LinkCopies() {
+  vertices_total_copy.assign(vertices_total.size(), -1);
+  std::vector<int> last(vertices_total.size(), -1);
+  RouterDB::point p;
+  for (int v = 0; v < int(vertices_total.size()); ++v) {
+    const auto &w = vertices_total[v];
+    if (w.metal < 0 || w.metal >= int(vertices_total_map.size())) continue;
+    p.x = w.x;
+    p.y = w.y;
+    auto it = vertices_total_map[w.metal].find(p);
+    if (it == vertices_total_map[w.metal].end() || it->second == v) continue;
+    int first = it->second;
+    vertices_total_copy[last[first] == -1 ? first : last[first]] = v;
+    last[first] = v;
+  }
 }
 
 void Grid::CreateGridData() {
@@ -3550,6 +3571,7 @@ Grid::Grid(GlobalGrid& GG, std::vector<std::pair<int, int>>& ST, PnRDB::Drc_info
       }
     }
   }
+  LinkCopies();  // frida
 }
 
 Grid::Grid(GlobalGrid& GG, std::vector<std::pair<int, int>>& ST, PnRDB::Drc_info& drc_info, RouterDB::point ll, RouterDB::point ur, int Lmetal, int Hmetal,

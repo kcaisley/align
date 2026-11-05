@@ -42,6 +42,13 @@ class Grid {
   RouterDB::point GridLL;        // Lower-left point of actual grid
   RouterDB::point GridUR;        // Upper-right point of actual grid
   std::vector<std::map<RouterDB::point, int, RouterDB::pointXYComp>> vertices_total_map;  // improve runtime of up/down edges - [wbxu: 20190505]
+  // frida: each vertex's next copy, another vertex of its metal at its point (-1: none). The tiles
+  // of a global route share their edges, and a track on a shared edge is laid once per tile:
+  // vertices_total_map holds only the first copy, and an obstacle marked through it must reach
+  // the others too (LinkCopies, ForEachCopy). GcellDetailRouter's via rules (via_active_up/down)
+  // still mark the first copy only: marking every copy too fixed no short, it only moved a few
+  // vias beside a destination pin
+  std::vector<int> vertices_total_copy;
   // RouterDB::point LL_graph; //LL for create graph
   // RouterDB:;point UR_graph; //UR for create graph
   // vector<RouterDB::SinkData> Source; //what is the correct defination of Source and Dest?
@@ -54,6 +61,12 @@ class Grid {
 
   public:
   Grid(){};
+  // frida: f on vertex v and on each of its copies (vertices_total_copy)
+  template <class F>
+  void ForEachCopy(int v, F f) {
+    for (; v >= 0 && v < int(vertices_total.size()); v = v < int(vertices_total_copy.size()) ? vertices_total_copy[v] : -1) f(vertices_total[v]);
+  }
+  void LinkCopies();
   Grid(const Grid &other);
   Grid &operator=(const Grid &other);
   Grid(PnRDB::Drc_info &drc_info, RouterDB::point ll, RouterDB::point ur, int Lmetal, int Hmetal, int grid_scale);

@@ -1,5 +1,7 @@
 #include "GcellDetailRouter.h"
 
+#include <chrono>  // frida: the time routing again may take
+
 #include "spdlog/spdlog.h"
 
 GcellDetailRouter::GcellDetailRouter(){
@@ -47,7 +49,56 @@ GcellDetailRouter::GcellDetailRouter(PnRDB::hierNode &HierNode, GcellGlobalRoute
 
   printNetsInfo();
   // create_detailrouter();
-  create_detailrouter_new();
+  // frida: ALIGN routes the nets one after another and never rips one up, so a net can find its
+  // pins closed by the nets before it. When a net finds no path, the cell is routed again from
+  // the start with the nets that failed first (in the order they first failed), up to five times,
+  // within twice the first routing's time (a minute at least: a large cell's routing takes many);
+  // the routing with the fewest failed nets is kept. A routing where every net finds its path is
+  // the first and only one, as before.
+  {
+    std::vector<int> order(Nets.size());
+    for (unsigned int k = 0; k < Nets.size(); ++k) order[k] = k;
+    const auto nets0 = Nets;
+    const auto report0 = temp_report;
+    std::vector<int> failed;
+    const auto began = std::chrono::steady_clock::now();
+    create_detailrouter_new(order, failed);
+    const double first_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
+    if (!failed.empty()) {
+      auto best_nets = Nets;
+      auto best_report = temp_report;
+      size_t best = failed.size();
+      std::vector<int> first;
+      const auto retrying = std::chrono::steady_clock::now();
+      for (int attempt = 0; attempt < 5 && !failed.empty(); ++attempt) {
+        const double spent = std::chrono::duration<double>(std::chrono::steady_clock::now() - retrying).count();
+        if (spent > std::max(2.0 * first_s, 60.0)) {
+          logger->info("frida: {0} routed again for {1:.0f} s (its first routing {2:.0f} s): no more", HierName, spent, first_s);
+          break;
+        }
+        for (int f : failed)
+          if (std::find(first.begin(), first.end(), f) == first.end()) first.push_back(f);
+        std::vector<int> again = first;
+        for (unsigned int k = 0; k < Nets.size(); ++k)
+          if (std::find(first.begin(), first.end(), int(k)) == first.end()) again.push_back(k);
+        std::string names;
+        for (int f : first) names += " " + nets0[f].netName;
+        logger->info("frida: {0} nets found no path in {1}; routing again with{2} first", failed.size(), HierName, names);
+        Nets = nets0;
+        temp_report = report0;
+        failed.clear();
+        create_detailrouter_new(again, failed);
+        logger->info("frida: {0} nets found no path in {1} on routing again", failed.size(), HierName);
+        if (failed.size() < best) {
+          best = failed.size();
+          best_nets = Nets;
+          best_report = temp_report;
+        }
+      }
+      Nets = best_nets;
+      temp_report = best_report;
+    }
+  }
   // logger->debug("physical metal and via");
   // Physical_metal_via();  // this needs modify
   // logger->debug("Start Extend Metal");
@@ -365,6 +416,12 @@ void GcellDetailRouter::SortPinsOrder() {
 }
 
 void GcellDetailRouter::create_detailrouter_new() {
+  std::vector<int> order(Nets.size()), failed;
+  for (unsigned int k = 0; k < Nets.size(); ++k) order[k] = k;
+  create_detailrouter_new(order, failed);
+}
+
+void GcellDetailRouter::create_detailrouter_new(const std::vector<int> &order, std::vector<int> &failed) {
   auto logger = spdlog::default_logger()->clone("router.GcellDetailRouter.create_detailrouter");
 
   // bug:
@@ -389,7 +446,7 @@ void GcellDetailRouter::create_detailrouter_new() {
   // end initial set
   // start detail router
   // Copy_tile_metals();
-  for (unsigned int i = 0; i < Nets.size(); i++) {
+  for (int i : order) {  // frida: in the given order
     // int multi_number = R_constraint_based_Parallel_routing_number(i);
     if (Nets[i].DoNotRoute) continue;
     int multi_number = Nets[i].multi_connection;
@@ -459,7 +516,11 @@ void GcellDetailRouter::create_detailrouter_new() {
         bool pathMark = a_star.FindFeasiblePath_sym(grid, this->path_number, 0, 0, symmetry_path);
         // std::cout<<"performing detailed router on debug 1"<<std::endl;
 
-        if (pathMark == 0) {
+        // frida: the grid, the cells' metal and the contacts as matlab data, rewritten at each net
+        // that found no path, only where ALIGN_ROUTER_DUMPS is set: on a large cell, writing them
+        // (a flush a line) took most of its routing. (spdlog's level is no guide: the module sets
+        // it from Python's root logger, which ALIGN keeps at DEBUG for its log file.)
+        if (pathMark == 0 && std::getenv("ALIGN_ROUTER_DUMPS") != nullptr) {
           grid.CreateGridData();
           // grid.CreateGridData_new();
           get_internal_metal_via();
@@ -493,6 +554,7 @@ void GcellDetailRouter::create_detailrouter_new() {
           // std::cout<<"performing detailed router on debug 4"<<std::endl;
         } else {
           logger->warn("Router-Warning: feasible path might not be found");
+          if (std::find(failed.begin(), failed.end(), i) == failed.end()) failed.push_back(i);  // frida
         }
 
         // logger->debug("Detail Router check point 8");
@@ -1720,7 +1782,7 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
     datafile << mindex;
     datafile << " ";
     datafile << index;
-    datafile << std::endl;
+    datafile << '\n';  // frida: no flush a line
   };
 
   RouterDB::box box;
@@ -1863,6 +1925,28 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
   } else {
     for (std::set<RouterDB::SinkData, RouterDB::SinkDataComp>::iterator mit = Set.begin(); mit != Set.end(); ++mit) {
       int mIdx = mit->metalIdx;
+      // frida: a via site inside a pin of this net keeps its via: the pin is its pad on mIdx. Only
+      // a pin on mIdx that meets the contact's via boxes (the contact grown by its vias' enclosed
+      // rects and the metal's end-to-end spacing) can hold a site in them: those, found once for
+      // the contact, are the ones each site is checked against
+      int reach = 0;
+      for (int v : {mIdx - 1, mIdx}) {
+        if (v < 0 || v >= int(drc_info.Via_model.size())) continue;
+        for (const auto *rect : {&drc_info.Via_model[v].LowerRect, &drc_info.Via_model[v].UpperRect})
+          for (const auto &p : *rect) reach = std::max(reach, std::max(std::abs(p.x), std::abs(p.y)));
+      }
+      reach += drc_info.Metal_info[mIdx].dist_ee;
+      std::vector<RouterDB::SinkData> near;
+      for (const auto *pins : {&temp_source, &temp_dest}) {
+        for (const auto &pin : *pins) {
+          if (pin.metalIdx != mIdx || pin.coord.size() < 2 || mit->coord.size() < 2) continue;
+          if (pin.coord[0].x <= mit->coord[1].x + reach && pin.coord[1].x >= mit->coord[0].x - reach && pin.coord[0].y <= mit->coord[1].y + reach &&
+              pin.coord[1].y >= mit->coord[0].y - reach)
+            near.push_back(pin);
+        }
+      }
+      auto keep_lower = [&](int x, int y) { return !near.empty() && PinPad(near, mIdx, mIdx, false, x, y) != nullptr; };
+      auto keep_upper = [&](int x, int y) { return mIdx > 0 && !near.empty() && PinPad(near, mIdx, mIdx - 1, true, x, y) != nullptr; };
       if (drc_info.Metal_info[mIdx].direct == 0) {
         // vertical
         if (mIdx < this->layerNo - 1) {
@@ -1884,9 +1968,9 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
           check_box.UR.y = mit->coord[1].y;
           if (CheckWhetherInsideSourceDest(temp_source, mIdx, check_box) or CheckWhetherInsideSourceDest(temp_dest, mIdx, check_box)) continue;
           // current metal cannot go up
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid, keep_lower);
           // upper metal cannot go down
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid, keep_lower);
           // writeout_matlabfile(box.LL.x,box.LL.y,box.UR.x,box.UR.y,mIdx);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx, 2);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx + 1, 2);
@@ -1910,9 +1994,9 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
           // if this box belong to any source or dest, then skip it
           if (CheckWhetherInsideSourceDest(temp_source, mIdx, check_box) or CheckWhetherInsideSourceDest(temp_dest, mIdx, check_box)) continue;
           // current metal cannot go down
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid, keep_upper);
           // lower metal cannot go up
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid, keep_upper);
           // writeout_matlabfile(box.LL.x,box.LL.y,box.UR.x,box.UR.y,mIdx);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx, 2);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx + 1, 2);
@@ -1939,9 +2023,9 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
           // if this box belong to any source or dest, then skip it
           if (CheckWhetherInsideSourceDest(temp_source, mIdx, check_box) or CheckWhetherInsideSourceDest(temp_dest, mIdx, check_box)) continue;
           // current metal cannot go up
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid, keep_lower);
           // upper metal cannot go down
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid, keep_lower);
           // writeout_matlabfile(box.LL.x,box.LL.y,box.UR.x,box.UR.y,mIdx);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx, 2);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx + 1, 2);
@@ -1965,9 +2049,9 @@ void GcellDetailRouter::AddViaEnclosure(std::set<std::pair<int, RouterDB::point>
           // if this box belong to any source or dest, then skip it
           if (CheckWhetherInsideSourceDest(temp_source, mIdx, check_box) or CheckWhetherInsideSourceDest(temp_dest, mIdx, check_box)) continue;
           // current metal cannot go down
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].UpperIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, false, grid, keep_upper);
           // lower metal cannot go up
-          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid);
+          InactivateRect2GridPoints_Via(drc_info.Via_model[vIdx].LowerIdx, box.LL.x, box.LL.y, box.UR.x, box.UR.y, true, grid, keep_upper);
           // writeout_matlabfile(box.LL.x,box.LL.y,box.UR.x,box.UR.y,mIdx);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx, 2);
           write_out_via(box.LL.x, box.LL.y, box.UR.x, box.UR.y, vIdx + 1, 2);
@@ -3502,6 +3586,61 @@ void GcellDetailRouter::ExtendMetal() {
   }
 };
 
+// frida: a via that lands on metal of its own net already there (a pin, or the net's routed metal)
+// takes that metal as its pad: the metal holds the cut and its enclosure along it, whichever way
+// its layer's tracks run. A cell's pin across its layer's tracks (a vertical access strip on a
+// horizontal metal, inside a ring a track-wise pad would not fit) is reachable so.
+const RouterDB::SinkData *GcellDetailRouter::PinPad(const std::vector<RouterDB::SinkData> &pins, int metal, int vIdx, bool upper, int x, int y) {
+  if (vIdx < 0 || vIdx >= int(drc_info.Via_info.size())) return nullptr;
+  const auto &via = drc_info.Via_info[vIdx];
+  int hx = via.width / 2, hy = via.width_y / 2, cover = upper ? via.cover_u : via.cover_l;
+  for (const auto &pin : pins) {
+    if (pin.metalIdx != metal || pin.coord.size() < 2) continue;
+    const auto &ll = pin.coord[0];
+    const auto &ur = pin.coord[1];
+    bool inside = ll.x <= x - hx && ur.x >= x + hx && ll.y <= y - hy && ur.y >= y + hy;
+    bool along_x = ll.x <= x - hx - cover && ur.x >= x + hx + cover;
+    bool along_y = ll.y <= y - hy - cover && ur.y >= y + hy + cover;
+    if (inside && (along_x || along_y)) return &pin;
+  }
+  return nullptr;
+}
+
+// frida: net i's vias on its pins, and its zero-length pieces there, drawn within the pin
+void GcellDetailRouter::PadsInsidePins(int i) {
+  std::vector<RouterDB::SinkData> pins;
+  for (const auto &node : Nets[i].connected) {
+    if (node.type != RouterDB::BLOCK) continue;
+    for (const auto &contact : Blocks[node.iter2].pins[node.iter].pinContacts) {
+      RouterDB::SinkData pin;
+      pin.metalIdx = contact.metal;
+      pin.coord = {contact.placedLL, contact.placedUR};
+      pins.push_back(pin);
+    }
+  }
+  if (pins.empty()) return;
+  auto clip = [](RouterDB::contact &rect, const RouterDB::SinkData &pin) {
+    rect.placedLL.x = std::max(rect.placedLL.x, pin.coord[0].x);
+    rect.placedLL.y = std::max(rect.placedLL.y, pin.coord[0].y);
+    rect.placedUR.x = std::min(rect.placedUR.x, pin.coord[1].x);
+    rect.placedUR.y = std::min(rect.placedUR.y, pin.coord[1].y);
+  };
+  for (auto &via : Nets[i].path_via) {
+    int v = via.model_index;
+    if (const auto *pin = PinPad(pins, drc_info.Via_model[v].UpperIdx, v, true, via.position.x, via.position.y)) clip(via.UpperMetalRect, *pin);
+    if (const auto *pin = PinPad(pins, drc_info.Via_model[v].LowerIdx, v, false, via.position.x, via.position.y)) clip(via.LowerMetalRect, *pin);
+  }
+  for (auto &metal : Nets[i].path_metal) {
+    const auto &a = metal.LinePoint[0];
+    const auto &b = metal.LinePoint[1];
+    if (a.x != b.x || a.y != b.y) continue;
+    int k = metal.MetalIdx;
+    const RouterDB::SinkData *pin = k > 0 ? PinPad(pins, k, k - 1, true, a.x, a.y) : nullptr;
+    if (pin == nullptr) pin = PinPad(pins, k, k, false, a.x, a.y);
+    if (pin != nullptr) clip(metal.MetalRect, *pin);
+  }
+}
+
 void GcellDetailRouter::GetPhsical_Metal_Via(int i) {
   auto logger = spdlog::default_logger()->clone("router.GcellDetailRouter.GetPhsical_Metal_Via");
 
@@ -3624,6 +3763,7 @@ void GcellDetailRouter::GetPhsical_Metal_Via(int i) {
   for (via_it = via_begin; via_it != via_end; ++via_it) {
     Nets[i].path_via.push_back(*via_it);
   }
+  PadsInsidePins(i);  // frida
 };
 
 void GcellDetailRouter::CreatePlistSymBlocks(std::vector<std::set<RouterDB::point, RouterDB::pointXYComp>> &set_plist, RouterDB::point gridll,
@@ -4360,7 +4500,7 @@ void GcellDetailRouter::InactivateRect2GridPoints(int mIdx, int LLx, int LLy, in
           if (x >= newLLx && x <= newURx && y >= newLLy && y <= newURy) {
             tmpP.x = x;
             tmpP.y = y;
-            grid.vertices_total[grid.vertices_total_map.at(mIdx)[tmpP]].active = false;
+            grid.ForEachCopy(grid.vertices_total_map.at(mIdx)[tmpP], [](RouterDB::vertex &v) { v.active = false; });  // frida: every copy
           }
         }
       }
@@ -4379,7 +4519,7 @@ void GcellDetailRouter::InactivateRect2GridPoints(int mIdx, int LLx, int LLy, in
           if (x >= newLLx && x <= newURx && y >= newLLy && y <= newURy) {
             tmpP.x = x;
             tmpP.y = y;
-            grid.vertices_total[grid.vertices_total_map.at(mIdx)[tmpP]].active = false;
+            grid.ForEachCopy(grid.vertices_total_map.at(mIdx)[tmpP], [](RouterDB::vertex &v) { v.active = false; });  // frida: every copy
           }
         }
       }
@@ -4407,7 +4547,7 @@ void GcellDetailRouter::InactivateRect2GridPoints(int mIdx, int LLx, int LLy, in
           if (x >= newLLx && x <= newURx && y >= newLLy && y <= newURy) {
             tmpP.x = x;
             tmpP.y = y;
-            grid.vertices_total[grid.vertices_total_map.at(mIdx)[tmpP]].active = false;
+            grid.ForEachCopy(grid.vertices_total_map.at(mIdx)[tmpP], [](RouterDB::vertex &v) { v.active = false; });  // frida: every copy
           }
         }
       }
@@ -4426,7 +4566,7 @@ void GcellDetailRouter::InactivateRect2GridPoints(int mIdx, int LLx, int LLy, in
           if (x >= newLLx && x <= newURx && y >= newLLy && y <= newURy) {
             tmpP.x = x;
             tmpP.y = y;
-            grid.vertices_total[grid.vertices_total_map.at(mIdx)[tmpP]].active = false;
+            grid.ForEachCopy(grid.vertices_total_map.at(mIdx)[tmpP], [](RouterDB::vertex &v) { v.active = false; });  // frida: every copy
           }
         }
       }
@@ -4571,7 +4711,8 @@ void GcellDetailRouter::ConvertRect2GridPoints_Via(std::vector<std::vector<Route
   }
 };
 
-void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy, int URx, int URy, bool up, Grid &grid) {
+void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy, int URx, int URy, bool up, Grid &grid,
+                                                      const std::function<bool(int, int)> &keep) {
   auto logger = spdlog::default_logger()->clone("router.GcellDetailRouter.InactivateRect2GridPoints_Via");
 
   RouterDB::point tmpP;
@@ -4591,7 +4732,7 @@ void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy
         int newURy = URy;
         int boundY = (newLLy % nexlayer_unit == 0) ? (newLLy / nexlayer_unit + 1) * nexlayer_unit : ceil((double)newLLy / nexlayer_unit) * nexlayer_unit;
         for (int y = boundY; y < newURy; y += nexlayer_unit) {
-          if (x >= LLx && x <= URx && y >= LLy && y <= URy) {
+          if (x >= LLx && x <= URx && y >= LLy && y <= URy && !(keep && keep(x, y))) {
             tmpP.x = x;
             tmpP.y = y;
             if (up)
@@ -4608,7 +4749,7 @@ void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy
         int newURy = URy;
         int boundY = (newLLy % nexlayer_unit == 0) ? (newLLy / nexlayer_unit + 1) * nexlayer_unit : ceil((double)newLLy / nexlayer_unit) * nexlayer_unit;
         for (int y = boundY; y < newURy; y += nexlayer_unit) {
-          if (x >= LLx && x <= URx && y >= LLy && y <= URy) {
+          if (x >= LLx && x <= URx && y >= LLy && y <= URy && !(keep && keep(x, y))) {
             tmpP.x = x;
             tmpP.y = y;
             if (up)
@@ -4632,7 +4773,7 @@ void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy
         int newURx = URx;
         int boundX = (newLLx % nexlayer_unit == 0) ? (newLLx / nexlayer_unit + 1) * nexlayer_unit : ceil((double)newLLx / nexlayer_unit) * nexlayer_unit;
         for (int x = boundX; x < newURx; x += nexlayer_unit) {
-          if (x >= LLx && x <= URx && y >= LLy && y <= URy) {
+          if (x >= LLx && x <= URx && y >= LLy && y <= URy && !(keep && keep(x, y))) {
             tmpP.x = x;
             tmpP.y = y;
             if (up)
@@ -4648,7 +4789,7 @@ void GcellDetailRouter::InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy
         int newURx = URx;
         int boundX = (newLLx % nexlayer_unit == 0) ? (newLLx / nexlayer_unit + 1) * nexlayer_unit : ceil((double)newLLx / nexlayer_unit) * nexlayer_unit;
         for (int x = boundX; x < newURx; x += nexlayer_unit) {
-          if (x >= LLx && x <= URx && y >= LLy && y <= URy) {
+          if (x >= LLx && x <= URx && y >= LLy && y <= URy && !(keep && keep(x, y))) {
             tmpP.x = x;
             tmpP.y = y;
             if (up)

@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <functional>
 #ifdef WINDOWS
 #include <Windows.h>  // getcwd
 #else
@@ -83,7 +84,12 @@ class GcellDetailRouter : public GcellGlobalRouter {
   // void InsertPathToCand_End(std::vector<std::vector<RouterDB::Metal> > &physical_path, RouterDB::Segment &temp_seg);
   void ConvertRect2GridPoints(std::vector<std::vector<RouterDB::point>> &plist, int mIdx, int LLx, int LLy, int URx, int URy);
   void InactivateRect2GridPoints(int mIdx, int LLx, int LLy, int URx, int URy, Grid& grid);
-  void InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy, int URx, int URy, bool up, Grid &grid);
+  void InactivateRect2GridPoints_Via(int mIdx, int LLx, int LLy, int URx, int URy, bool up, Grid &grid,
+                                     const std::function<bool(int, int)> &keep = {});
+  // frida: a via landing on a pin of its net takes the pin as its pad (the pin's cell holds the
+  // enclosure, along the pin whichever way the metal's tracks run)
+  const RouterDB::SinkData *PinPad(const std::vector<RouterDB::SinkData> &pins, int metal, int vIdx, bool upper, int x, int y);
+  void PadsInsidePins(int i);
   // void CheckOverlapMetals(std::set<RouterDB::SinkData, RouterDB::SinkDataComp> Set_x, std::vector<RouterDB::Net>& nets);
   void Physical_metal_via();
   // void AddMetalToPin();
@@ -209,6 +215,8 @@ class GcellDetailRouter : public GcellGlobalRouter {
   void get_internal_metal_via();
 
   void create_detailrouter_new();
+  // frida: route the nets in ``order``; the nets that found no path for a pin go to ``failed``
+  void create_detailrouter_new(const std::vector<int> &order, std::vector<int> &failed);
   void InsertPhysicalPathToSetX(int net_index, std::set<RouterDB::SinkData, RouterDB::SinkDataComp> &Set_x);
   void Refresh_Grid(Grid &grid);
   void returnPath_new(std::vector<std::vector<RouterDB::Metal>> &temp_path, int net_index, std::vector<std::vector<int>> extend_labels,
