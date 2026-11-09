@@ -175,6 +175,15 @@ class RemoveDuplicates():
             else:
                 assert False, (nm,type(gen))
 
+        # A layer the PDK states that is neither a metal nor a via (an annotation's, a marker's: a
+        # device recognition layer), and that this canvas draws no wire on, is a region to these
+        # checks, skipped as the boundary is; a layer the PDK does not know is still reported
+        pdk = getattr(self.canvas, 'pdk', None)
+        if pdk is not None:
+            for layer in pdk.keys():
+                if not layer.startswith(('M', 'V')) and layer not in self.layers:
+                    self.skip_layers.add( layer)
+
         self.indicesTbl = {'h': ([1, 3], 0), 'v': ([0, 2], 1), '*': ([0, 2], 1)}
 
 
