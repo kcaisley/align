@@ -546,6 +546,31 @@ Geom::PointWidthSet Router::findValidPoints(const Geom::Rect& r, const int z, co
         padbox = _dnVias[z][0]->lpad();
         zpadbox = _dnVias[z][0]->upad();
       }
+      // the adjacent metal's own tracks across the pin too (its Pitch and Offset in layers.json), each
+      // cut inside the pin: the steps below start at the pin's far end a pitch apart and can step past
+      // the one place a wire of the next layer reaches the pin (a capacitor's strip, entered at its end)
+      Geom::Rect cut;
+      if (dir == UP && !_upVias[z].empty()) cut = _upVias[z][0]->bbox();
+      if (dir == DOWN && !_dnVias[z].empty()) cut = _dnVias[z][0]->bbox();
+      const DRC::MetalLayer* adjm = metalLayer(_lf, adj);
+      auto tracks = [&](const int lo, const int hi, auto&& add) {
+        if (!adjm || adjm->pitch() <= 0 || hi < lo) return;
+        const int pitch{adjm->pitch()}, offset{adjm->offset()};
+        int t = offset + static_cast<int>(std::ceil(static_cast<double>(lo - offset) / pitch)) * pitch;
+        for (int n = 0; t <= hi && n < NUM_POINTS; t += pitch, ++n) add(t);
+      };
+      if (vert && cut.valid() && adjm && adjm->prefDir() != 1) {
+        tracks(r.ymin() + cut.height() / 2, r.ymax() - cut.height() / 2, [&](const int t) {
+          points.insert(std::make_pair(Geom::Point(x, t), widthy(z)));
+          if (verboseAt(LogLevel::ELEMENT)) COUT << "pointv track : " << x << ',' << t << ',' << widthy(z) << '\n';
+        });
+      }
+      if (hor && cut.valid() && adjm && adjm->prefDir() != 0) {
+        tracks(r.xmin() + cut.width() / 2, r.xmax() - cut.width() / 2, [&](const int t) {
+          points.insert(std::make_pair(Geom::Point(t, y), widthx(z)));
+          if (verboseAt(LogLevel::ELEMENT)) COUT << "pointh track : " << t << ',' << y << ',' << widthx(z) << '\n';
+        });
+      }
       if (vert) {
         int space = roundup(std::max(spacey(adj) + ((wy % 2 == 0) ? wy/2 : (wy/2 + 1)), r.height()/NUM_POINTS));
         if (padbox.valid()) {
