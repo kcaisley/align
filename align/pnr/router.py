@@ -17,6 +17,7 @@ from .placer import hierarchical_place
 
 from .pythonic_router import collect_pins
 from . import hanan_output
+from . import hanan2
 
 
 logger = logging.getLogger(__name__)
@@ -449,7 +450,28 @@ def router_driver(*, cap_map, cap_lef_s,
                         placement_verilog_d=placement_dict, def_dir="./Results", results_dir="./Results",
                         input_dir=idir, layers_file=ipath / 'layers.json', cap_map=cap_map, json_dir=".")
 
-        
+            if router == 'hanan2':
+                # the rewritten hanan router, a program of its own (pnr/hanan2.py): the same inputs
+                # as hanan's, as files; its DEFs become the variant's files as hanan's do
+                logger.info(f"hanan2 router started")
+                ipath = pathlib.Path("./inputs")
+                placement_dict = scaled_placement_verilog_d.dict()
+                lef_path = hanan2.lef(lef_s_in if lef_s_in else (idir / new_lef_file).read_text(), ipath / 'hanan2.lef')
+                modules = hanan2.route(
+                    layers_file=ipath / 'layers.json', placement_file=pathlib.Path(fpath) / scaled_placement_verilog_file,
+                    lef_file=lef_path, ndr_file=hanan2.ndr(ipath / 'ndr.json', placement_dict, ipath / 'hanan2_ndr.json'),
+                    out_dir="./Results", name=concrete_top_name)
+                logger.info(f"hanan2 router ended")
+                if not skipGDS:
+                    res_dict[concrete_top_name] = hanan_output.write_variant(
+                        variant=concrete_top_name, routed_top=tr_tbl.get(concrete_top_name, concrete_top_name),
+                        placement_verilog_d=placement_dict, def_dir="./Results", results_dir="./Results",
+                        input_dir=idir, layers_file=ipath / 'layers.json', cap_map=cap_map, json_dir=".")
+                    opened = [f"{module} {net}" for module, (_, nets) in modules.items() for net in nets]
+                    if opened:  # the open nets, as the astar flow reports its errors
+                        res_dict[concrete_top_name]["errors"] = len(opened)
+                        res_dict[concrete_top_name]["errfile"].write_text("".join(f"OPEN {o}\n" for o in opened))
+
             if router == 'astar':
                 res = route( DB=DB, idx=DB.TraverseHierTree()[-1], opath=opath, adr_mode=adr_mode, PDN_mode=PDN_mode,
                              router_mode=router_mode, skipGDS=skipGDS, placements_to_run=placements_to_run, nroutings=nroutings)

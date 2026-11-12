@@ -109,7 +109,7 @@ class CmdlineParser():
         parser.add_argument('--router',
                             type=str,
                             default='astar',
-                            choices=['astar','hanan'],
+                            choices=['astar','hanan','hanan2'],
                             help='Router to use')
 
         parser.add_argument('--gui',
