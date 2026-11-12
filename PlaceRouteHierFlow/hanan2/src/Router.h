@@ -456,6 +456,7 @@ class Router {
     std::vector<int> _drcspacex, _drcspacey;
     std::vector<int> _widthy, _ndrwidthy, _spacey, _ndrspacey;
     int _minLayer, _maxLayer, _maxRoutingLayer;
+    int _defMinLayer{0}, _defMaxLayer{0};  // layers.json's signal routing layers (design_info)
     Vias _vias;
     std::vector<Vias> _upVias, _dnVias;
     std::string _name;
@@ -789,6 +790,8 @@ class Router {
     }
     const int maxLayer() const { return _maxLayer; }
     const int minLayer() const { return _minLayer; }
+    // route on layers lo..hi (a layer < 0: layers.json's signal layer; hi at most the top metal)
+    void setLayerRange(const int lo, const int hi);
     bool canViaUp(const int z) const
     { return z >= 0 && z < static_cast<int>(_aboveViaLayer.size()) && _aboveViaLayer[z] >= 0; }
     bool canViaDown(const int z) const

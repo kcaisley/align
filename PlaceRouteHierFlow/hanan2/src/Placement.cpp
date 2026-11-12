@@ -267,6 +267,9 @@ void Module::route(Router::Router& router, const std::string& outdir)
         }
       }
     }
+    // this module's routing layers: its Route constraint's, else layers.json's signal layers
+    // (its instances' modules, routed above, set their own)
+    router.setLayerRange(_routeMinLayer, _routeMaxLayer);
     NetsVec nets;
     for (auto &n : _nets) {
       if (std::find(_routeorder.begin(), _routeorder.end(), &n.second) == _routeorder.end()) {
@@ -653,6 +656,7 @@ void Module::route(Router::Router& router, const std::string& outdir)
             try {
               {
                 Router::Router myrouter(router.layerInfo());
+                myrouter.setLayerRange(router.minLayer(), router.maxLayer());
                 myrouter.setuu(_uu);
                 myrouter.setModName(_name);
                 myrouter.setusepinwidth((_usepinwidth == 1) ? true : false);

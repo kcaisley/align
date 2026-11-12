@@ -372,6 +372,8 @@ Router::Router(const DRC::LayerInfo& lf) : _cf{lf}, _sol{nullptr}, _minLayer{INT
   }
   _minLayer = lf.signalBottomLayer();
   _maxLayer = lf.signalTopLayer();
+  _defMinLayer = _minLayer;
+  _defMaxLayer = _maxLayer;
   {
     CostType floorc = COST_MAX;
     for (int z = _minLayer; z <= _maxLayer; ++z) {
@@ -385,6 +387,23 @@ Router::Router(const DRC::LayerInfo& lf) : _cf{lf}, _sol{nullptr}, _minLayer{INT
   _nodes.clear();
   _nodes.resize(_maxLayer + 1);
   constructVias();
+}
+
+void Router::setLayerRange(const int lo, const int hi)
+{
+  int mn = (lo >= 0 ? lo : _defMinLayer);
+  int mx = (hi >= 0 ? std::min(hi, _cf.topRoutingLayer()) : _defMaxLayer);
+  if (mx < mn) mx = mn;
+  if (mn == _minLayer && mx == _maxLayer) return;
+  _minLayer = mn;
+  _maxLayer = mx;
+  CostType floorc = COST_MAX;  // as the constructor does, over the new range
+  for (int z = _minLayer; z <= _maxLayer; ++z) {
+    floorc = std::min(floorc, std::min(_cf.hcost(z), _cf.vcost(z)));
+  }
+  _cf.setRelaxFloor(floorc);
+  flushNodes();  // the node table holds one entry per layer up to the top routing layer
+  COUT << "routing layers : " << LAYER_NAMES[_minLayer] << " to " << LAYER_NAMES[_maxLayer] << '\n';
 }
 
 void Router::setGuide(const Geom::LayerRects& g, const CostType weight)

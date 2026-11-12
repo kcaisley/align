@@ -109,6 +109,22 @@ Netlist::Netlist(const std::string& plfile, const::std::string& leffile, const D
           const auto& b = (*bbox);
           modu->setBBox(Geom::Rect(b[0], b[1], b[2], b[3]));
         }
+        // ALIGN's Route constraint: the module's nets are routed on min_layer..max_layer (a layer
+        // left unset, or not a layer of layers.json, takes layers.json's signal routing layer)
+        auto consts = m.find("constraints");
+        if (consts != m.end() && consts->is_array()) {
+          for (auto& c : *consts) {
+            auto cn = c.find("constraint");
+            if (cn == c.end() || !cn->is_string() || *cn != "Route") continue;
+            int lo{-1}, hi{-1};
+            auto itl = c.find("min_layer");
+            if (itl != c.end() && itl->is_string()) lo = lf.getLayerIndex(*itl);
+            itl = c.find("max_layer");
+            if (itl != c.end() && itl->is_string()) hi = lf.getLayerIndex(*itl);
+            modu->setRouteLayers(lo, hi);
+            COUT << "module " << *mname << " Route layers : " << lo << " to " << hi << '\n';
+          }
+        }
         auto insts = m.find("instances");
         if (insts != m.end()) {
           for (auto& inst : *insts) {

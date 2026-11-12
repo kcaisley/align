@@ -282,6 +282,8 @@ class Module {
     Geom::Rect _bbox;
     const int _uu;
     NetsVec _routeorder;
+    // the module's routing layers, from ALIGN's Route constraint (-1: layers.json's signal layers)
+    int _routeMinLayer{-1}, _routeMaxLayer{-1};
 
     // Pre-route state, captured on the first route(). _obstacles holds only the
     // LEF OBS / NDR shapes at that point; child routes and pin promotions are
@@ -346,6 +348,7 @@ class Module {
     const Pins& pins() const { return _pins; }
 
     void setBBox(const Geom::Rect& b) { _bbox = b; }
+    void setRouteLayers(const int lo, const int hi) { _routeMinLayer = lo; _routeMaxLayer = hi; }
     Pin* addPin(const std::string& name)
     {
       Pin* p{nullptr};
