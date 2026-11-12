@@ -61,3 +61,13 @@ def test_binary_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("ALIGN_HANAN2", str(tmp_path / "absent"))
     with pytest.raises(FileNotFoundError, match="ALIGN_HANAN2"):
         hanan2.binary()
+
+
+def test_binary_installed_by_default(monkeypatch, tmp_path):
+    program = tmp_path / "bin" / "hanan2"
+    program.parent.mkdir()
+    program.write_text("#!/bin/sh\n")
+    program.chmod(0o755)
+    monkeypatch.delenv("ALIGN_HANAN2", raising=False)
+    monkeypatch.setattr(hanan2, "INSTALLED", program)
+    assert hanan2.binary() == str(program)

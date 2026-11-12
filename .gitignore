@@ -93,3 +93,6 @@ tests/cell_fabric/Foo*.cir
 !Viewer/larger_example/mydesign_dr_globalrouting.json
 _skbuild/
 *.lp
+
+# the hanan2 router program, installed by the build (PlaceRouteHierFlow/hanan2)
+align/bin/

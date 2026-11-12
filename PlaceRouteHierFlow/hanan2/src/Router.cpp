@@ -389,6 +389,40 @@ Router::Router(const DRC::LayerInfo& lf) : _cf{lf}, _sol{nullptr}, _minLayer{INT
   constructVias();
 }
 
+static const DRC::MetalLayer* metalLayer(const DRC::LayerInfo& lf, const int z)
+{
+  const auto& layers = lf.layers();
+  if (z < 0 || z >= static_cast<int>(layers.size()) || !layers[z]->isMetal()) return nullptr;
+  return static_cast<const DRC::MetalLayer*>(layers[z]);
+}
+
+long long Router::minArea(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return (m && m->minL() > 0 && m->width() > 0) ? static_cast<long long>(m->width()) * m->minL() : 0;
+}
+
+int Router::metalSpace(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  int s = m ? m->space() : 0;
+  if (z >= 0 && z < static_cast<int>(_ndrspacex.size()) && _ndrspacex[z] != INT_MAX) s = std::max(s, _ndrspacex[z]);
+  if (z >= 0 && z < static_cast<int>(_ndrspacey.size()) && _ndrspacey[z] != INT_MAX) s = std::max(s, _ndrspacey[z]);
+  return s;
+}
+
+int Router::endSpace(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return std::max(metalSpace(z), m ? m->e2e() : 0);
+}
+
+int Router::prefDir(const int z) const
+{
+  auto m = metalLayer(_lf, z);
+  return m ? m->prefDir() : -1;
+}
+
 void Router::setLayerRange(const int lo, const int hi)
 {
   int mn = (lo >= 0 ? lo : _defMinLayer);
@@ -1977,6 +2011,7 @@ Geom::LayerRects Router::findSol()
     COUT << "debug plot enabled for wire : " << debugplot << '\n';
   }
   Geom::LayerRects sol;
+  _searched = !_sources.empty() && !_targets.empty();
   if (!_sources.empty() && !_targets.empty()) {
     size_t minExpansions{1000000};
     for (auto attempt : {0, 1}) {

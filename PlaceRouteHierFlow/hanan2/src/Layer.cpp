@@ -1,5 +1,7 @@
 #include "Layer.h"
 #include "Util.h"
+#include <cctype>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 
@@ -218,6 +220,27 @@ LayerInfo::LayerInfo(const std::string& ljfile, const int uu) : _sbottom{nullptr
         }
       }
     }
+  }
+  // the grid grown metal ends on: design_info's manufacturing_grid, else the coarsest grid every
+  // routing metal's width, pitch, offset, minimum length and end-to-end space sits on (layers.json
+  // names its metals M1, M2, ...)
+  {
+    int grid{0};
+    if (itd != oj.end()) {
+      auto itg = itd->find("manufacturing_grid");
+      if (itg != itd->end() && itg->is_number()) grid = static_cast<int>(std::round(static_cast<double>(*itg) * uu));
+    }
+    if (grid <= 0) {
+      auto gcd = [](int a, int b) { while (b) { auto t = a % b; a = b; b = t; } return a; };
+      for (auto& m : _mlayers) {
+        const auto& n = m->name();
+        if (n.size() < 2 || n[0] != 'M' || !std::isdigit(static_cast<unsigned char>(n[1]))) continue;
+        for (auto v : {m->width(), m->pitch(), m->offset(), m->minL(), m->e2e()}) {
+          if (v > 0) grid = gcd(grid, v);
+        }
+      }
+    }
+    _mfgGrid = (grid > 0) ? grid : 1;
   }
   _layers.insert(_layers.end(), _mlayers.begin(), _mlayers.end());
   _topMetal = (static_cast<int>(_layers.size()) - 1);

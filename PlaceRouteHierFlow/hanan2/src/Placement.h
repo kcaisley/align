@@ -111,6 +111,10 @@ class Net {
     unsigned int _detour : 1;
     PortPairs reorderPorts() const;
     PortPairs clockRouteOrder() const;
+    // the net's routed metal islands below their metal's minimum area, lengthened to it within the
+    // module's outline, clear of the other metal (others) by its space and end-of-line space
+    void growShortIslands(const Router::Router& router, const std::vector<const Geom::LayerRects*>& others,
+        const Geom::Rect& outline, const std::string& modname);
     std::map<int, int> _ndrwidths, _ndrspaces;
     std::map<int, DRC::Direction> _ndrdirs;
     std::set<int> _preflayers;

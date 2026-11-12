@@ -451,6 +451,7 @@ class Router {
     Geom::Rect _bbox, _mbox;
     const Node *_sol;
     bool _lastSolFound{false};
+    bool _searched{false};  // the last findSol had sources and targets to search between
     std::vector<std::array<int, 6>> _exploredEdges;
     std::vector<int> _widthx, _ndrwidthx, _spacex, _ndrspacex;
     std::vector<int> _drcspacex, _drcspacey;
@@ -792,6 +793,14 @@ class Router {
     const int minLayer() const { return _minLayer; }
     // route on layers lo..hi (a layer < 0: layers.json's signal layer; hi at most the top metal)
     void setLayerRange(const int lo, const int hi);
+    // a metal's minimum area (layers.json's Width x MinL, 0 where it has no MinL), its space (the
+    // net's NDR space if larger), its end-of-line space (EndToEnd, at least its space), its preferred
+    // direction (1 vertical, 0 horizontal, -1 either), and the grid grown metal ends on
+    long long minArea(const int z) const;
+    int metalSpace(const int z) const;
+    int endSpace(const int z) const;
+    int prefDir(const int z) const;
+    int mfgGrid() const { return _lf.mfgGrid(); }
     bool canViaUp(const int z) const
     { return z >= 0 && z < static_cast<int>(_aboveViaLayer.size()) && _aboveViaLayer[z] >= 0; }
     bool canViaDown(const int z) const
@@ -837,6 +846,8 @@ class Router {
     // check this instead of the returned shape list's emptiness, which is
     // also empty on a legitimate zero-length (already-coincident) solution.
     bool lastSolutionFound() const { return _lastSolFound; }
+    // the last findSol had sources and targets to search between (else no retry can do better)
+    bool searched() const { return _searched; }
     long solLength() const { return _sollen; }
     void setMBox(const Geom::Rect& box) { _mbox = box; }
     void printSol() const;

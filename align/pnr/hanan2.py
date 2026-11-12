@@ -1,12 +1,13 @@
 """The rewritten hanan router (github.com/srini229/hanan_router), ALIGN's ``--router hanan2``.
 
-It is a program of its own, not part of PnR: ALIGN hands it the files the in-process hanan
-router reads (layers.json, the scaled placement JSON, the LEF and an NDR file) and reads back
-its DEF per routed module, as for hanan (hanan_output.write_variant).
+Its source is PlaceRouteHierFlow/hanan2 (a subtree of that repository); ALIGN's build makes it a
+program of its own, installed as align/bin/hanan2, not part of PnR. ALIGN hands it the files the
+in-process hanan router reads (layers.json, the scaled placement JSON, the LEF and an NDR file)
+and reads back its DEF per routed module, as for hanan (hanan_output.write_variant).
 
-The program is ``ALIGN_HANAN2`` (a path), else ``hanan_router`` on PATH. ``ALIGN_HANAN2_ARGS``
-adds options (shell syntax, e.g. ``-threads 4 -reorder 20``); ``ALIGN_HANAN2_TIMEOUT`` stops
-it after that many seconds.
+``ALIGN_HANAN2`` names another build of the program (e.g. the repository's own, ``make``).
+``ALIGN_HANAN2_ARGS`` adds options (shell syntax, e.g. ``-threads 4 -reorder 20``);
+``ALIGN_HANAN2_TIMEOUT`` stops it after that many seconds.
 
 The NDR file is the design's own (``inputs/ndr.json``, may be absent) with each module's
 DoNotRoute nets as its ``do_not_route`` and its SymmetricNets pairs as its ``symmetric_nets``
@@ -20,7 +21,6 @@ import os
 import pathlib
 import re
 import shlex
-import shutil
 import subprocess
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,16 @@ def lef(text, out_file):
     return out_file
 
 
+INSTALLED = pathlib.Path(__file__).resolve().parents[1] / "bin" / "hanan2"
+
+
 def binary():
-    """The router's program: ``ALIGN_HANAN2``, else ``hanan_router`` on PATH."""
-    path = os.environ.get("ALIGN_HANAN2") or shutil.which("hanan_router")
-    if not path or not pathlib.Path(path).is_file():
-        raise FileNotFoundError(
-            "hanan2: no router program; set ALIGN_HANAN2 to the hanan_router binary "
-            "(github.com/srini229/hanan_router, built with make) or put it on PATH"
-        )
+    """The router's program: ``ALIGN_HANAN2`` where set, else the one ALIGN's build installed."""
+    stated = os.environ.get("ALIGN_HANAN2")
+    path = pathlib.Path(stated) if stated else INSTALLED
+    if not path.is_file() or not os.access(path, os.X_OK):
+        where = f"ALIGN_HANAN2={stated}" if stated else str(INSTALLED)
+        raise FileNotFoundError(f"hanan2: no router program at {where}; build and install ALIGN again")
     return str(path)
 
 

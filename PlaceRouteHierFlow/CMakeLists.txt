@@ -3,6 +3,7 @@ add_subdirectory(placer)
 add_subdirectory(EA_placer)
 add_subdirectory(router)
 add_subdirectory(hanan_router)
+add_subdirectory(hanan2)  # a program of its own (--router hanan2), not linked into PnR
 add_subdirectory(cap_placer)
 add_subdirectory(guard_ring)
 add_subdirectory(MNA)
