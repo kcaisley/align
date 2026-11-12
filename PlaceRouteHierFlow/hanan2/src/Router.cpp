@@ -3044,7 +3044,7 @@ const Via* Router::isViaValid(const Node* n, const bool up) const
             it->second.search(nbrs, via->bbox().bloatby(_lf.spacex(aboveLayer), _lf.spacey(aboveLayer)));
             for (auto& o : nbrs) {
               for (auto& c : via->cuts()) {
-                if (o.bloatby(_lf.spacex(aboveLayer), _lf.spacey(aboveLayer)).overlaps(c, false)) {
+                if (o.overlaps(c, true)) {  // o is already bloated by the via spacing (generateHananGrid)
                   delete via;
                   via = nullptr;
                   break;
@@ -3115,7 +3115,7 @@ const Via* Router::isViaValid(const Node* n, const bool up) const
             it->second.search(nbrs, via->bbox().bloatby(_lf.spacex(belowLayer), _lf.spacey(belowLayer)));
             for (auto& o : nbrs) {
               for (auto& c : via->cuts()) {
-                if (o.bloatby(_lf.spacex(belowLayer), _lf.spacey(belowLayer)).overlaps(c, false)) {
+                if (o.overlaps(c, true)) {  // o is already bloated by the via spacing (generateHananGrid)
                   delete via;
                   via = nullptr;
                   break;
@@ -3217,7 +3217,7 @@ std::vector<ViaEscapeAttempt> Router::diagnoseViaEscape(const Node* n, const boo
       for (auto& c : via.cuts()) {
         bool cutBlocked = false;
         for (auto& o : nbrs) {
-          if (o.bloatby(_lf.spacex(adjLayer), _lf.spacey(adjLayer)).overlaps(c, false)) {
+          if (o.overlaps(c, true)) {  // o is already bloated by the via spacing (generateHananGrid)
             cutBlocked = true;
             break;
           }
