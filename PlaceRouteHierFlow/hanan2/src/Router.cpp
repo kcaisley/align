@@ -1108,12 +1108,39 @@ int Router::snap(const Node* n, const bool vert, const bool up) const
         }
       }
     } else {
+      // a node off the grid's lines (it stopped at a free range's end on another layer, or a via
+      // took it there): its line's free ranges from the obstacles, as the grid's own lines have them
+      // (else it could not move along the line at all)
       snapc = (vert ? n->y() : n->x());
-      //snapc = (vert ? (up ? _bbox.ymax() : _bbox.ymin())
-      //    : (up ? _bbox.xmax() : _bbox.xmin()));
+      for (const auto& r : freeRanges(n->z(), pos, vert)) {
+        if (lkp >= r.first && lkp <= r.second) {
+          snapc = (up ? r.second : r.first);
+          break;
+        }
+      }
     }
   }
   return snapc;
+}
+
+IntRangeSet Router::freeRanges(const int z, const int pos, const bool vert) const
+{
+  IntRangeSet s;
+  auto it = _ltree.find(z);
+  if (it != _ltree.end()) {
+    Geom::Rects hits;
+    const Geom::Rect line = vert ? Geom::Rect(pos, _bbox.ymin() - 1, pos, _bbox.ymax())
+                                 : Geom::Rect(_bbox.xmin() - 1, pos, _bbox.xmax(), pos);
+    it->second.search(hits, line);
+    for (const auto& o : hits) {
+      if (vert ? (pos > o.xmin() && pos < o.xmax()) : (pos > o.ymin() && pos < o.ymax())) {
+        insertRange(s, vert ? std::make_pair(std::max(o.ymin(), _bbox.ymin() - 1), std::min(o.ymax(), _bbox.ymax()))
+                            : std::make_pair(std::max(o.xmin(), _bbox.xmin() - 1), std::min(o.xmax(), _bbox.xmax())));
+      }
+    }
+  }
+  invertRange(s, vert);
+  return s;
 }
 
 void Router::getTargetGrid(std::vector<int>& s, const Node* n, const bool vert, const int snapc)
@@ -1342,7 +1369,7 @@ void Router::expandNode(const Node* n1)
   n->resetexpand();
 }
 
-void Router::insertRange(IntRangeSet& s, const IntPair& r)
+void Router::insertRange(IntRangeSet& s, const IntPair& r) const
 {
   IntPair rc = r;
 #if DEBUG
@@ -1370,7 +1397,7 @@ void Router::insertRange(IntRangeSet& s, const IntPair& r)
   s.insert(s.begin() + lo, rc);
 }
 
-void Router::invertRange(IntRangeSet& s, const bool vert)
+void Router::invertRange(IntRangeSet& s, const bool vert) const
 {
   IntRangeSet sout;
   int start = _bbox.xmin(), end = _bbox.xmax();

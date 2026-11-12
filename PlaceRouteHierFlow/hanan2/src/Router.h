@@ -639,8 +639,10 @@ class Router {
     // A node's cost only ever improves, so re-prioritising is a sift up.
     void pqImproved(Node* n) { if (inPQ(n)) pqSiftUp(n->pqidx()); }
 
-    void invertRange(IntRangeSet& s, const bool vert);
-    void insertRange(IntRangeSet& s, const IntPair& r);
+    void invertRange(IntRangeSet& s, const bool vert) const;
+    void insertRange(IntRangeSet& s, const IntPair& r) const;
+    // the free ranges of a line at pos on layer z, as generateHananGrid finds them for its own lines
+    IntRangeSet freeRanges(const int z, const int pos, const bool vert) const;
     void expandNode(const Node* n);
     void generateHananGrid();
     void checkAndInsert(Node* newn, const Node* n);
