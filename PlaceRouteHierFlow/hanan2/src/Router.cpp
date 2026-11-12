@@ -41,6 +41,9 @@ void Via::addCuts(const Geom::Point& o, const int wx, const int wy, const int nr
   if (nrow == 1 && ncol == 1) {
     _cut = r;
     _bbox.merge(_cut);
+    // the one cut is a cut too: the spacing checks walk cuts(), and with it left out a single-cut
+    // via was never held off another cut (two of a net's cuts 95 nm apart merged into a bar)
+    _cuts.push_back(r);
   } else {
     for (int i = 0; i < nrow; ++i) {
       for (int j = 0; j < ncol; ++j) {
