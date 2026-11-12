@@ -183,14 +183,18 @@ LayerInfo::LayerInfo(const std::string& ljfile, const int uu) : _sbottom{nullptr
                     if (itva != itvg.end() && itva->is_number()) ny = static_cast<int>(*itva);
                     auto& va = vlayer->addViaArray(wx, wy, sx, sy, nx, ny);
                     auto itve = itvg.find("VencX_L");
+                    va._xyl = (itve != itvg.end() && itve->is_number());
                     x = (itve != itvg.end() && itve->is_number()) ? static_cast<int>(*itve) * uu : vlayer->coverlx();
                     itve = itvg.find("VencY_L");
+                    va._xyl = va._xyl || (itve != itvg.end() && itve->is_number());
                     y = (itve != itvg.end() && itve->is_number()) ? static_cast<int>(*itve) * uu : vlayer->coverly();
                     va._coverl[0] = x;
                     va._coverl[1] = y;
                     itve = itvg.find("VencX_H");
+                    va._xyu = (itve != itvg.end() && itve->is_number());
                     x = (itve != itvg.end() && itve->is_number()) ? static_cast<int>(*itve) * uu : vlayer->coverux();
                     itve = itvg.find("VencY_H");
+                    va._xyu = va._xyu || (itve != itvg.end() && itve->is_number());
                     y = (itve != itvg.end() && itve->is_number()) ? static_cast<int>(*itve) * uu : vlayer->coveruy();
                     va._coveru[0] = x;
                     va._coveru[1] = y;
@@ -255,14 +259,17 @@ LayerInfo::LayerInfo(const std::string& ljfile, const int uu) : _sbottom{nullptr
       for (auto& it : vl->viaArray()) {
         COUT << "\t va : " << it._sw._space.first << ' ' << it._sw._space.second << ' ' << it._nx << ' ' << it._ny << '\n';
       }
+      // ALIGN's VencA_*/VencP_* enclose the cut along and across each metal's direction, read as x
+      // and y: on a vertical metal they turn (else the pad bulges across its wire, a jog beside it,
+      // and blocks a via beside the cell's metal). A metal routed both ways keeps them as read.
+      auto lp = vl->layers();
+      if (lp.first && lp.first->prefDir() == 1) {
+        vl->swapcover(false);
+      }
+      if (lp.second && lp.second->prefDir() == 1) {
+        vl->swapcover(true);
+      }
       COUT << " cover : l: " << vl->coverlx() << ',' << vl->coverly() << " u: " << vl->coverux() << ',' << vl->coveruy() << '\n';
-      //auto lp = vl->layers();
-      //if (lp.first && lp.first->isVertical()) {
-      //  vl->swapcover(false);
-      //}
-      //if (lp.second && lp.second->isVertical()) {
-      //  vl->swapcover(true);
-      //}
     }
   }
   COUT << "top metal layer : " << LAYER_NAMES[_topMetal] << '\n';

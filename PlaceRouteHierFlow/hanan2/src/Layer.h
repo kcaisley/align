@@ -88,6 +88,9 @@ struct ViaArray {
   SpaceWidth _sw;
   int _coverl[2], _coveru[2]; // 0 : low, 1 : high
   int _nx, _ny;
+  // the enclosures stated as x and y (a generator's VencX_*/VencY_*), not taken from the via
+  // layer's VencA/VencP, which run along and across each metal's direction
+  bool _xyl{false}, _xyu{false};
   ViaArray() : _sw{}, _coverl{0, 0}, _coveru{0, 0}, _nx{0}, _ny{0} {}
   ViaArray(const int  wx, const int wy, const int sx, const int sy, const int nx, const int ny)
     : _coverl{0, 0}, _coveru{0, 0}
@@ -141,8 +144,13 @@ class ViaLayer : public Layer {
     int coveruy() const { return _coveru[1]; }
     void swapcover(bool up)
     {
-      if (up) std::swap(_coveru[0], _coveru[1]); 
-      else std::swap(_coverl[0], _coverl[1]); 
+      if (up) std::swap(_coveru[0], _coveru[1]);
+      else std::swap(_coverl[0], _coverl[1]);
+      // the arrays that took the layer's VencA/VencP turn with it
+      for (auto& va : _va) {
+        if (up && !va._xyu) std::swap(va._coveru[0], va._coveru[1]);
+        if (!up && !va._xyl) std::swap(va._coverl[0], va._coverl[1]);
+      }
     }
     int spacex() const { return _sw._space.first; }
     int spacey() const { return _sw._space.second; }
