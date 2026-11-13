@@ -1559,10 +1559,23 @@ void coverHoles(PolySet& ps, const PolySet& src, const PolySet& tgt)
 
 void Router::generateHananGrid()
 {
+  // the layers a search reads: the routing metals and the via layers between them. The obstacles
+  // on the others (a cell's metal below the range, a shield above it, their vias) are never read,
+  // and filling their holes, splitting them and indexing them was most of the grid's cost
+  std::vector<char> used(_widthx.size(), 0);
+  for (int z = _minLayer; z <= _maxLayer && z < static_cast<int>(used.size()); ++z) {
+    used[z] = 1;
+    if (z < _maxLayer && z < static_cast<int>(_aboveViaLayer.size()) && _aboveViaLayer[z] >= 0
+        && _aboveViaLayer[z] < static_cast<int>(used.size())) {
+      used[_aboveViaLayer[z]] = 1;
+    }
+  }
+  auto isUsed = [&used](const int l) { return l >= 0 && l < static_cast<int>(used.size()) && used[l]; };
   for (auto& l : _ptobstacles) {
+    if (!isUsed(l.first)) continue;
     auto its = _psources.find(l.first);
     auto ith = _ptargets.find(l.first);
-    coverHoles(l.second, ((its != _psources.end()) ? its->second : PolySet()), 
+    coverHoles(l.second, ((its != _psources.end()) ? its->second : PolySet()),
         ((ith != _ptargets.end()) ? ith->second : PolySet()));
     if (its != _psources.end()) {
       l.second -= its->second;
@@ -1594,6 +1607,7 @@ void Router::generateHananGrid()
     _tobstacles[l].push_back(Geom::Rect(box.xmin(), box.ymax() + 50, box.xmax(), box.ymax() + 100));
   }
   for (auto& l : _ptobstacles) {
+    if (!isUsed(l.first)) continue;
     int sx{0}, sy{0};
     auto& layer = l.first;
     if (layer < static_cast<int>(_widthx.size())) {
